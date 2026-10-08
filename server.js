@@ -57,6 +57,7 @@ create table if not exists pay_items(
   addCol("duties", "pay_json", "text");
   addCol("duties", "stock_done", "integer not null default 0");
   addCol("duties", "assigned_by", "integer");
+  addCol("credit_recoveries", "duty_id", "integer");
 }
 
 const app = express();
@@ -283,14 +284,30 @@ app.delete("/api/credit-sales/:id", need(), (q, s) => {
 
 // ---- Credit Recovery Collections
 app.post("/api/credit-recoveries", need(), (q, s) => {
+  const { cust_id, mode, a, note, duty_id } = q.body || {};
+  const c = customers().find((x) => String(x.id) === String(cust_id));
+  const amt = Math.round(+a * 100) / 100;
+  if (!c) return s.status(400).json({ error: "Choose a customer from the list." });
+  if (!(amt > 0 && amt <= 1e7)) return s.status(400).json({ error: "Enter an amount above zero." });
+  const openD = duty_id || (openDuty(q.user.id) ? openDuty(q.user.id).id : null);
+  const id = db.prepare("insert into credit_recoveries(cust_id,d,mode,note,a,worker_id,created,duty_id) values(?,?,?,?,?,?,?,?)")
+    .run(String(c.id), bizDate(), String(mode || "Cash").slice(0, 30), String(note || "").trim().slice(0, 100), amt, q.user.id, now(), openD).lastInsertRowid;
+  s.json({ id, ok: true });
+});
+app.put("/api/credit-recoveries/:id", need(), (q, s) => {
+  const cr = db.prepare("select * from credit_recoveries where id=?").get(+q.params.id);
+  if (!cr) return s.status(404).json({ error: "Recovery entry not found." });
+  if (q.user.role === "worker" && cr.worker_id !== q.user.id) {
+    return s.status(403).json({ error: "You can only edit your own recovery entries." });
+  }
   const { cust_id, mode, a, note } = q.body || {};
   const c = customers().find((x) => String(x.id) === String(cust_id));
   const amt = Math.round(+a * 100) / 100;
   if (!c) return s.status(400).json({ error: "Choose a customer from the list." });
   if (!(amt > 0 && amt <= 1e7)) return s.status(400).json({ error: "Enter an amount above zero." });
-  const id = db.prepare("insert into credit_recoveries(cust_id,d,mode,note,a,worker_id,created) values(?,?,?,?,?,?,?)")
-    .run(String(c.id), bizDate(), String(mode || "Cash").slice(0, 30), String(note || "").trim().slice(0, 100), amt, q.user.id, now()).lastInsertRowid;
-  s.json({ id, ok: true });
+  db.prepare("update credit_recoveries set cust_id=?, mode=?, note=?, a=? where id=?")
+    .run(String(c.id), String(mode || "Cash").slice(0, 30), String(note || "").trim().slice(0, 100), amt, +q.params.id);
+  s.json({ id: +q.params.id, ok: true });
 });
 app.get("/api/credit-recoveries", need(), (q, s) => {
   const names = {};
@@ -344,14 +361,14 @@ function detail(d) {
   const sales = r2(lines.reduce((a, l) => a + l.amount, 0)), litres = r2(lines.reduce((a, l) => a + l.litres, 0));
   const lube = r2(items.reduce((a, i) => a + i.amount, 0)), exp = r2(expenses.reduce((a, e) => a + e.amount, 0));
   const credit = r2(db.prepare("select coalesce(sum(a),0) t from credit_sales where worker_id=? and status='ok' and created>=? and created<=?").get(d.worker_id, d.started, d.submitted || now()).t);
-  const recovery = r2(db.prepare("select coalesce(sum(a),0) t from credit_recoveries where worker_id=? and created>=? and created<=?").get(d.worker_id, d.started, d.submitted || now()).t);
+  const recovery = r2(db.prepare("select coalesce(sum(a),0) t from credit_recoveries where (duty_id=? or (duty_id is null and worker_id=? and created>=? and created<=?))").get(d.id, d.worker_id, d.started, d.submitted || now()).t);
   const cnames = {};
   (st.c || []).forEach((c) => (cnames[String(c.id)] = c.name));
   const credit_sales = db.prepare("select id,cust_id,d,n,a,veh,status,created from credit_sales where worker_id=? and status<>'rejected' and created>=? and created<=? order by id desc")
     .all(d.worker_id, d.started, d.submitted || now())
     .map((cs) => ({ ...cs, cname: cnames[String(cs.cust_id)] || "Customer" }));
-  const credit_recoveries = db.prepare("select id,cust_id,d,mode,note,a,created from credit_recoveries where worker_id=? and created>=? and created<=? order by id desc")
-    .all(d.worker_id, d.started, d.submitted || now())
+  const credit_recoveries = db.prepare("select id,cust_id,d,mode,note,a,created from credit_recoveries where (duty_id=? or (duty_id is null and worker_id=? and created>=? and created<=?)) order by id desc")
+    .all(d.id, d.worker_id, d.started, d.submitted || now())
     .map((cr) => ({ ...cr, cname: cnames[String(cr.cust_id)] || "Customer" }));
   const pay = d.pay_json ? JSON.parse(d.pay_json) : { cash: d.cash, upi: d.upi, card: d.card };
   const collected = r2(Object.values(pay).reduce((a, x) => a + (+x || 0), 0));

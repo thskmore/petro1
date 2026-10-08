@@ -504,10 +504,191 @@ function removeCreditSale(id,inModal){
   }).catch(function(err){toast(err.error||"Could not remove credit sale.")});
 }
 function refreshDutyCredits(cb){var isWorker=(DF&&DF.mode=="worker");var url=isWorker?"/api/duty/current":("/api/duties/"+(DF?DF.id:0));api("GET",url).then(function(r){var dutyObj=isWorker?(r&&r.duty):r;if(dutyObj&&DF){DF.credits=dutyObj.credit_sales||[];DF.credit=dutyObj.credit||0}renderDF();cb&&cb()}).catch(function(){renderDF();cb&&cb()})}
-function recoveryModal(){if(!DF)return;function showRM(){var list=(CL&&CL.length)?CL:(S&&S.c?S.c:[]);var h='<h2>Credit Recovery Collections</h2><div class="sub">Record payments collected from credit customers during this duty.</div>';var recs=DF.recoveries||[];if(recs.length){h+='<div style="margin:12px 0;max-height:180px;overflow-y:auto">';recs.forEach(function(x,i){h+='<div class="cust" style="cursor:default;margin-top:6px;padding:9px 12px"><div class="row"><b>'+esc(x.cname||"Customer")+'</b><span class="amt pay" style="flex:none">+'+inr(fnum(x.a))+'</span></div><div class="row" style="margin-top:4px"><span class="sub" style="flex:1">'+esc(x.mode||"Cash")+(x.note?' \u00b7 '+esc(x.note):'')+'</span><button class="ghost" style="flex:none;padding:4px 9px;font-size:12px" onclick="removeRecovery('+x.id+',true)">Remove</button></div></div>'});h+='</div>'}h+='<label>Customer<select id="rm1" onchange="rmCust()"><option value="">Choose customer</option>'+list.map(function(c){var d=c.due!=null?c.due:due(c);var dueTxt=(d!=null&&d>0)?' (Due: '+inr(d)+')':(d!=null&&d<=0?' (Nil due)':'');return '<option value="'+c.id+'">'+esc(c.name)+dueTxt+'</option>'}).join("")+'</select></label><div class="sub" id="rm0" style="margin-top:4px"></div><label>Payment mode<select id="rm2"><option>Cash</option><option>UPI</option><option>Cheque</option><option>Bank transfer</option></select></label><label>Amount (\u20b9)<input id="rm3" inputmode="decimal" placeholder="e.g. 5000"></label><label>Details / receipt / vehicle (optional)<input id="rm4" placeholder="e.g. Cleared bill, vehicle MH12 AB 1234"></label><div class="err" id="rmer"></div><div class="row" style="margin-top:14px"><button class="ghost" onclick="close()">Close</button><button onclick="saveRecoveryModal()">Add collection</button></div>';openM(h);setTimeout(function(){var el=document.getElementById("rm3");if(el&&!el.value)el.focus()},60)}if(CL&&CL.length){showRM();fetchCL(function(updated){var sel=document.getElementById("rm1");if(sel&&updated&&updated.length){var cur=sel.value;sel.innerHTML='<option value="">Choose customer</option>'+updated.map(function(c){var d=c.due!=null?c.due:due(c);var dueTxt=(d!=null&&d>0)?' (Due: '+inr(d)+')':(d!=null&&d<=0?' (Nil due)':'');return '<option value="'+c.id+'"'+(String(c.id)===String(cur)?' selected':'')+'>'+esc(c.name)+dueTxt+'</option>'}).join("");rmCust()}})}else{fetchCL(function(){showRM()})}}
-function rmCust(){var custId=v("rm1"),c=(CL||[]).filter(function(x){return String(x.id)===String(custId)})[0]||(S&&S.c?find(custId):null),d0=document.getElementById("rm0");if(d0){if(!c){d0.textContent="";return}var inf=[];var d=c.due!=null?c.due:due(c);if(d!=null)inf.push("Outstanding due: "+inr(d));if(c.available!=null)inf.push("Credit available: "+inr(c.available));if(c.limit!=null)inf.push("Credit limit: "+inr(c.limit));d0.textContent=inf.join(" \u00b7 ")}}
-function saveRecoveryModal(){var a=parseFloat(v("rm3")),b={cust_id:v("rm1"),mode:v("rm2")||"Cash",a:a,note:v("rm4")},e=document.getElementById("rmer");if(!b.cust_id){if(e)e.textContent="Choose a customer.";return}if(!(a>0)){if(e)e.textContent="Enter an amount above zero.";return}var c=(CL||[]).filter(function(x){return String(x.id)===String(b.cust_id)})[0]||(S&&S.c?find(b.cust_id):null);if(!SRV){DF.recoveries=DF.recoveries||[];DF.recoveries.push({id:Date.now(),cust_id:String(b.cust_id),cname:c?c.name:"Customer",mode:b.mode,a:a,note:b.note,d:today()});var totRec=DF.recoveries.reduce(function(acc,x){return acc+fnum(x.a)},0);DF.recovery=totRec;if(S&&S.c){var sc=find(b.cust_id);if(sc){sc.e=sc.e||[];sc.e.push({d:today(),t:"pay",n:"Duty collection ("+b.mode+(b.note?" \u00b7 "+b.note:"")+")",a:a,srv:"rec_"+Date.now()});save()}}renderDF();recoveryModal();autoSaveDuty(true);return}api("POST","/api/credit-recoveries",b).then(function(){refreshDutyRecoveries(recoveryModal);pullDuty();autoSaveDuty(true)}).catch(function(err){if(e)e.textContent=err.error||"Could not save. Check connection."})}
-function removeRecovery(id,inModal){if(!SRV){DF.recoveries=(DF.recoveries||[]).filter(function(x){return x.id!==id});var totRec=DF.recoveries.reduce(function(acc,x){return acc+fnum(x.a)},0);DF.recovery=totRec;renderDF();if(inModal)recoveryModal();autoSaveDuty(true);return}api("DELETE","/api/credit-recoveries/"+id).then(function(){refreshDutyRecoveries(inModal?recoveryModal:null);pullDuty();autoSaveDuty(true)}).catch(function(err){toast(err.error||"Could not remove collection.")})}
+function recoveryModal(preId){
+  if(!DF)return;
+  function showRM(){
+    var list=(CL&&CL.length)?CL:(S&&S.c?S.c:[]);
+    if(!list.length){
+      openM('<h2>Credit Recovery Collections</h2><div class="sub">No credit customers are registered yet.</div><div class="empty">Ask your manager or owner to add credit customers in Pump setup or Ledger.</div><div class="row" style="margin-top:14px"><button class="ghost" onclick="close()">Close</button></div>');
+      return;
+    }
+    var curRec=preId!=null?(DF.recoveries||[]).filter(function(x){return String(x.id)===String(preId)})[0]:null;
+    var selCustId=curRec?String(curRec.cust_id):(list[0]?String(list[0].id):"");
+    var selMode=curRec?(curRec.mode||"Cash"):"Cash";
+    var selAmt=curRec?curRec.a:"";
+    var selNote=curRec?(curRec.note||""):"";
+
+    var h='<h2>Credit Recovery Collections</h2><div class="sub">Record payments collected from credit customers during this duty.</div>';
+    var recs=DF.recoveries||[];
+    if(recs.length){
+      var validRows=[];
+      recs.forEach(function(x,i){
+        validRows.push('<div class="cust" style="cursor:default;margin-top:6px;padding:8px 12px"><div class="row" style="align-items:center"><b>'+esc(x.cname||"Customer")+'</b><span class="amt pay" style="flex:none;font-size:15px">+'+inr(fnum(x.a))+'</span></div><div class="row" style="margin-top:3px"><span class="sub" style="flex:1">'+esc(x.mode||"Cash")+(x.note?' \u00b7 '+esc(x.note):'')+'</span><button class="ghost" style="flex:none;padding:3px 8px;font-size:12px" onclick="removeRecovery('+x.id+',true)">Remove</button></div></div>');
+      });
+      if(validRows.length){
+        h+='<div style="margin:12px 0;max-height:160px;overflow-y:auto">'+validRows.join("")+'</div>';
+      }
+    }
+
+    h+='<label>Customer<select id="rm1" onchange="rmCust()">';
+    list.forEach(function(c){
+      var d=c.due!=null?c.due:due(c);
+      var dueTxt=(d!=null&&d>0)?' (Due: '+inr(d)+')':(d!=null&&d<=0?' (Nil due)':'');
+      var isSel=String(c.id)===selCustId?' selected':'';
+      h+='<option value="'+c.id+'"'+isSel+'>'+esc(c.name)+dueTxt+'</option>';
+    });
+    h+='</select></label>';
+    h+='<div class="sub" id="rm0" style="margin-top:4px"></div>';
+
+    var modes=["Cash","UPI","Cheque","Bank transfer"];
+    h+='<label>Payment mode<select id="rm2">';
+    modes.forEach(function(m){
+      h+='<option'+(m===selMode?' selected':'')+'>'+m+'</option>';
+    });
+    h+='</select></label>';
+
+    h+='<label>Amount (\u20b9)</label>';
+    h+='<input id="rm3" inputmode="decimal" placeholder="e.g. 5000" value="'+esc(selAmt)+'" oninput="calcRecoveryAmount()">';
+
+    h+='<label>Details / receipt / vehicle (optional)</label>';
+    h+='<input id="rm4" placeholder="e.g. Cleared bill, vehicle MH12 AB 1234" value="'+esc(selNote)+'">';
+
+    h+='<div class="row" style="background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-top:10px">';
+    h+='<span style="font-weight:600;font-size:14px;color:var(--mute)">Amount:</span>';
+    h+='<span id="rm_amt_display" style="text-align:right;font-weight:800;font-size:18px;color:var(--ok)">'+inr(fnum(selAmt))+'</span>';
+    h+='</div>';
+
+    h+='<div class="err" id="rmer"></div>';
+    h+='<div class="row" style="margin-top:14px">';
+    h+='<button class="ghost" onclick="close()">Close</button>';
+    h+='<button onclick="saveRecoveryModal('+(curRec?curRec.id:'null')+')">'+(curRec?'Save changes':'Save collection')+'</button>';
+    h+='</div>';
+
+    openM(h);
+    rmCust();
+    setTimeout(function(){
+      var aEl=document.getElementById("rm3");
+      if(aEl){aEl.focus();aEl.select()}
+    },60);
+  }
+
+  if(CL&&CL.length){
+    showRM();
+    fetchCL(function(updated){
+      var sel=document.getElementById("rm1");
+      if(sel&&updated&&updated.length){
+        var cur=sel.value;
+        sel.innerHTML=updated.map(function(c){
+          var d=c.due!=null?c.due:due(c);
+          var dueTxt=(d!=null&&d>0)?' (Due: '+inr(d)+')':(d!=null&&d<=0?' (Nil due)':'');
+          return '<option value="'+c.id+'"'+(String(c.id)===String(cur)?' selected':'')+'>'+esc(c.name)+dueTxt+'</option>';
+        }).join("");
+        rmCust();
+      }
+    });
+  }else{
+    fetchCL(function(){showRM()});
+  }
+}
+function calcRecoveryAmount(){
+  var aEl=document.getElementById("rm3");
+  var a=aEl?parseFloat(aEl.value):0;
+  if(isNaN(a)||a<0)a=0;
+  var disp=document.getElementById("rm_amt_display");
+  if(disp)disp.textContent=inr(a);
+}
+function rmCust(){
+  var custId=v("rm1"),c=(CL||[]).filter(function(x){return String(x.id)===String(custId)})[0]||(S&&S.c?find(custId):null),d0=document.getElementById("rm0");
+  if(d0){
+    if(!c){d0.textContent="";return}
+    var inf=[];
+    var d=c.due!=null?c.due:due(c);
+    if(d!=null)inf.push("Outstanding due: "+inr(d));
+    if(c.available!=null)inf.push("Credit available: "+inr(c.available));
+    if(c.limit!=null)inf.push("Credit limit: "+inr(c.limit));
+    d0.textContent=inf.join(" \u00b7 ");
+  }
+}
+function saveRecoveryModal(editId){
+  var a=parseFloat(v("rm3")),
+      custId=v("rm1"),
+      mode=v("rm2")||"Cash",
+      note=(v("rm4")||"").trim(),
+      e=document.getElementById("rmer");
+  if(!custId){if(e)e.textContent="Choose a customer.";return}
+  if(isNaN(a)||a<=0){if(e)e.textContent="Enter an amount above zero.";return}
+  var c=(CL||[]).filter(function(x){return String(x.id)===String(custId)})[0]||(S&&S.c?find(custId):null);
+  var cname=c?c.name:"Customer";
+  var b={cust_id:String(custId),mode:mode,a:Math.round(a*100)/100,note:note};
+
+  DF.recoveries=DF.recoveries||[];
+  var existing=editId!=null?DF.recoveries.filter(function(x){return String(x.id)===String(editId)})[0]:null;
+  var newEntry=null;
+  if(existing){
+    existing.cust_id=b.cust_id;
+    existing.cname=cname;
+    existing.mode=b.mode;
+    existing.a=b.a;
+    existing.note=b.note;
+  }else{
+    newEntry={
+      id:Date.now(),
+      cust_id:b.cust_id,
+      cname:cname,
+      mode:b.mode,
+      a:b.a,
+      note:b.note,
+      d:today()
+    };
+    DF.recoveries.push(newEntry);
+  }
+  var totRec=DF.recoveries.reduce(function(acc,x){return acc+fnum(x.a)},0);
+  DF.recovery=Math.round(totRec*100)/100;
+  renderDF();
+  close();
+  autoSaveDuty(true);
+
+  if(SRV){
+    if(existing&&typeof existing.id==="number"&&existing.id<1e11){
+      api("PUT","/api/credit-recoveries/"+existing.id,b).then(function(){
+        refreshDutyRecoveries();
+        pullDuty();
+      }).catch(function(){});
+    }else{
+      var targetItem=existing||newEntry;
+      api("POST","/api/credit-recoveries",Object.assign({},b,{duty_id:DF.id})).then(function(res){
+        if(res&&res.id&&targetItem){targetItem.id=res.id}
+        refreshDutyRecoveries();
+        pullDuty();
+      }).catch(function(){});
+    }
+  }else if(S&&S.c){
+    var sc=find(b.cust_id);
+    if(sc){
+      sc.e=sc.e||[];
+      sc.e.push({d:today(),t:"pay",n:"Duty collection ("+b.mode+(b.note?" \u00b7 "+b.note:"")+")",a:b.a,srv:"rec_"+Date.now()});
+      save();
+    }
+  }
+}
+function removeRecovery(id,inModal){
+  if(!DF)return;
+  DF.recoveries=(DF.recoveries||[]).filter(function(x){return String(x.id)!==String(id)});
+  var totRec=DF.recoveries.reduce(function(acc,x){return acc+fnum(x.a)},0);
+  DF.recovery=Math.round(totRec*100)/100;
+  renderDF();
+  if(inModal){
+    recoveryModal();
+  }
+  autoSaveDuty(true);
+  if(SRV&&typeof id==="number"&&id<1e11){
+    api("DELETE","/api/credit-recoveries/"+id).then(function(){
+      pullDuty();
+    }).catch(function(err){
+      toast(err.error||"Could not remove collection from server.");
+    });
+  }
+}
 function refreshDutyRecoveries(cb){var isWorker=(DF&&DF.mode=="worker");var url=isWorker?"/api/duty/current":("/api/duties/"+(DF?DF.id:0));api("GET",url).then(function(r){var dutyObj=isWorker?(r&&r.duty):r;if(dutyObj&&DF){DF.recoveries=dutyObj.credit_recoveries||[];DF.recovery=dutyObj.recovery||0}renderDF();cb&&cb()}).catch(function(){renderDF();cb&&cb()})}
 function lubeModal(preId){
   if(!DF)return;
@@ -663,7 +844,7 @@ if(DF.items&&DF.items.length){
 if(DF.recoveries&&DF.recoveries.length){
   h+='<div style="margin-top:8px">';
   DF.recoveries.forEach(function(x,i){
-    h+='<div class="cust" style="cursor:pointer;margin-top:6px;padding:9px 12px" onclick="recoveryModal()"><div class="row"><b>'+esc(x.cname||"Customer")+'</b><span class="amt pay" style="flex:none">+'+inr(fnum(x.a))+'</span></div><div class="row" style="margin-top:2px"><span class="sub" style="flex:1">'+esc(x.mode||"Cash")+(x.note?' \u00b7 '+esc(x.note):'')+'</span><button class="ghost" style="flex:none;padding:3px 8px;font-size:12px" onclick="event.stopPropagation();removeRecovery('+x.id+');autoSaveDuty(true)">Remove</button></div></div>';
+    h+='<div class="cust" style="cursor:pointer;margin-top:6px;padding:9px 12px" onclick="recoveryModal('+x.id+')"><div class="row"><b>'+esc(x.cname||"Customer")+'</b><span class="amt pay" style="flex:none">+'+inr(fnum(x.a))+'</span></div><div class="row" style="margin-top:2px"><span class="sub" style="flex:1">'+esc(x.mode||"Cash")+(x.note?' \u00b7 '+esc(x.note):'')+'</span><button class="ghost" style="flex:none;padding:3px 8px;font-size:12px" onclick="event.stopPropagation();removeRecovery('+x.id+');autoSaveDuty(true)">Remove</button></div></div>';
   });
   h+='</div>';
 }
