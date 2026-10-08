@@ -1,0 +1,20 @@
+{
+  "name": "petrol-app",
+  "version": "1.0.0",
+  "description": "Petrol pump manager server",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js",
+    "build": "node -e \"console.log('Build complete')\"",
+    "reset-login": "node -e \"const {openDatabase}=require('./sqlite-adapter'); openDatabase('data.db').then(d=>{ d.exec('delete from sessions; delete from users;'); d.saveNow(); console.log('Login credentials reset.'); process.exit(0); })\""
+  },
+  "keywords": [],
+  "author": "",
+  "license": "UNLICENSED",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "express": "^5.2.1",
+    "sql.js": "^1.14.2"
+  }
+}
