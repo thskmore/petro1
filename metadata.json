@@ -1,8 +1,6 @@
 {
   "name": "Petrol Pump Manager",
   "description": "Full-stack petrol pump management system with shift duties, nozzle readings, credit ledger, invoices, stock, tank dips, and payroll.",
-  "capabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ],
-  "permissions": []
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

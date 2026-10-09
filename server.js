@@ -1,4 +1,5 @@
 "use strict";
+require("dotenv").config();
 const express = require("express");
 const { openDatabase } = require("./sqlite-adapter");
 const bcrypt = require("bcryptjs");
@@ -58,6 +59,11 @@ create table if not exists pay_items(
   addCol("duties", "stock_done", "integer not null default 0");
   addCol("duties", "assigned_by", "integer");
   addCol("credit_recoveries", "duty_id", "integer");
+  addCol("credit_sales", "duty_id", "integer");
+}
+
+function openDuty(uid) {
+  return db.prepare("select * from duties where worker_id=? and status='open' order by id desc limit 1").get(uid);
 }
 
 const app = express();
@@ -242,7 +248,7 @@ app.get("/api/customers", need(), (q, s) => {
   s.json(customers().filter((c) => (all ? true : (c.active || (c.due != null && c.due > 0)))));
 });
 app.post("/api/credit-sales", need(), (q, s) => {
-  const { cust_id, n, a, veh, force } = q.body || {};
+  const { cust_id, n, a, veh, force, duty_id } = q.body || {};
   const c = customers().find((x) => String(x.id) === String(cust_id));
   const amt = Math.round(+a * 100) / 100, item = String(n || "").trim();
   if (!c) return s.status(400).json({ error: "Choose a customer from the list." });
@@ -253,8 +259,9 @@ app.post("/api/credit-sales", need(), (q, s) => {
   // Workers cannot exceed a customer's limit: the sale waits for a manager or owner to approve it.
   if (over && !worker && !force) return s.status(409).json({ error: "over_limit", available: c.available });
   const status = over && worker ? "pending" : "ok";
-  const id = db.prepare("insert into credit_sales(cust_id,d,n,a,veh,worker_id,created,status) values(?,?,?,?,?,?,?,?)")
-    .run(String(c.id), bizDate(), item, amt, String(veh || "").trim().toUpperCase().slice(0, 20), q.user.id, now(), status).lastInsertRowid;
+  const openD = duty_id || (openDuty(q.user.id) ? openDuty(q.user.id).id : null);
+  const id = db.prepare("insert into credit_sales(cust_id,d,n,a,veh,worker_id,created,status,duty_id) values(?,?,?,?,?,?,?,?,?)")
+    .run(String(c.id), bizDate(), item, amt, String(veh || "").trim().toUpperCase().slice(0, 20), q.user.id, now(), status, openD).lastInsertRowid;
   s.json({ id, pending: status === "pending", available: Math.round((status === "ok" ? c.available - amt : c.available) * 100) / 100 });
 });
 app.get("/api/credit-sales", need("owner", "manager"), (q, s) =>
@@ -360,12 +367,12 @@ function detail(d) {
   const expenses = db.prepare("select * from duty_expenses where duty_id=? order by id").all(d.id);
   const sales = r2(lines.reduce((a, l) => a + l.amount, 0)), litres = r2(lines.reduce((a, l) => a + l.litres, 0));
   const lube = r2(items.reduce((a, i) => a + i.amount, 0)), exp = r2(expenses.reduce((a, e) => a + e.amount, 0));
-  const credit = r2(db.prepare("select coalesce(sum(a),0) t from credit_sales where worker_id=? and status='ok' and created>=? and created<=?").get(d.worker_id, d.started, d.submitted || now()).t);
+  const credit = r2(db.prepare("select coalesce(sum(a),0) t from credit_sales where (duty_id=? or (duty_id is null and worker_id=? and created>=? and created<=?)) and status='ok'").get(d.id, d.worker_id, d.started, d.submitted || now()).t);
   const recovery = r2(db.prepare("select coalesce(sum(a),0) t from credit_recoveries where (duty_id=? or (duty_id is null and worker_id=? and created>=? and created<=?))").get(d.id, d.worker_id, d.started, d.submitted || now()).t);
   const cnames = {};
   (st.c || []).forEach((c) => (cnames[String(c.id)] = c.name));
-  const credit_sales = db.prepare("select id,cust_id,d,n,a,veh,status,created from credit_sales where worker_id=? and status<>'rejected' and created>=? and created<=? order by id desc")
-    .all(d.worker_id, d.started, d.submitted || now())
+  const credit_sales = db.prepare("select id,cust_id,d,n,a,veh,status,created from credit_sales where (duty_id=? or (duty_id is null and worker_id=? and created>=? and created<=?)) and status<>'rejected' order by id desc")
+    .all(d.id, d.worker_id, d.started, d.submitted || now())
     .map((cs) => ({ ...cs, cname: cnames[String(cs.cust_id)] || "Customer" }));
   const credit_recoveries = db.prepare("select id,cust_id,d,mode,note,a,created from credit_recoveries where (duty_id=? or (duty_id is null and worker_id=? and created>=? and created<=?)) order by id desc")
     .all(d.id, d.worker_id, d.started, d.submitted || now())
@@ -462,7 +469,6 @@ function adjustStock(duty, sign) {
   items.forEach((x) => { const it = (st.items || []).find((i) => String(i.id) === x.item_id); if (it) it.stock = Math.max(0, r2(+it.stock + sign * x.qty)); });
   db.prepare("update state set ver=ver+1, json=? where id=1").run(JSON.stringify(st));
 }
-const openDuty = (uid) => db.prepare("select * from duties where worker_id=? and status='open' order by id desc limit 1").get(uid);
 const mine = (q, s, n) => {
   const d = db.prepare("select * from duties where id=? and worker_id=? and status='open'").get(+q.params.id, q.user.id);
   if (!d) return s.status(404).json({ error: "This duty is not open." });
@@ -535,6 +541,116 @@ app.post("/api/duties/assign", need("owner", "manager"), (q, s) => {
     return did;
   })();
   s.json({ id: dutyId });
+});
+
+// Worker self-assignment from latest closed duty
+app.get("/api/worker/assign-info", need(), (q, s) => {
+  const d = bizDate(), st = stateNow();
+  const open = openDuty(q.user.id);
+  if (open) {
+    return s.json({ has_open: true, duty: detail(open), date: d, day: dayStatus(d) });
+  }
+  const lastDuty = db.prepare("select * from duties where worker_id=? and status in ('closed', 'submitted') order by id desc limit 1").get(q.user.id);
+  if (!lastDuty) {
+    return s.json({ has_open: false, latest_closed: null, date: d, day: dayStatus(d) });
+  }
+  const nm = nozzleMap(st);
+  const lines = db.prepare("select * from duty_lines where duty_id=? order by id").all(lastDuty.id);
+  const busy = {};
+  db.prepare("select dl.nozzle_id n, u.name w from duty_lines dl join duties du on du.id=dl.duty_id join users u on u.id=du.worker_id where du.status='open'").all().forEach((x) => (busy[x.n] = x.w));
+  const nozzles = lines.map((l) => {
+    const n = nm[l.nozzle_id] || { name: "Nozzle", fuel: "" };
+    const rate = rateFor(st, n.fuel, d);
+    const opening = l.closing != null ? l.closing : (lastClose(l.nozzle_id).c ?? (n.open ?? null));
+    return {
+      id: l.nozzle_id,
+      name: n.name,
+      fuel: n.fuel,
+      rate,
+      opening,
+      busy_by: busy[String(l.nozzle_id)] || null,
+      active: n.active !== false
+    };
+  });
+  const colleagues = db.prepare("select id, name from users where role='worker' and active=1 and id<>? order by name").all(q.user.id);
+  s.json({
+    has_open: false,
+    latest_closed: {
+      id: lastDuty.id,
+      d: lastDuty.d,
+      shift: lastDuty.shift,
+      status: lastDuty.status,
+      closed_at: lastDuty.closed_at,
+      submitted: lastDuty.submitted
+    },
+    nozzles,
+    date: d,
+    day: dayStatus(d),
+    shifts: SHIFTS,
+    colleagues
+  });
+});
+
+app.post("/api/worker/assign-duty", need(), (q, s) => {
+  const { shift, target_worker_id, note } = q.body || {}, st = stateNow(), d = bizDate();
+  let tw = q.user;
+  const isHandover = target_worker_id && String(target_worker_id) !== String(q.user.id);
+  if (isHandover) {
+    const found = db.prepare("select * from users where id=? and role='worker' and active=1").get(+target_worker_id);
+    if (!found) return s.status(400).json({ error: "Selected worker for handover is not found or inactive." });
+    tw = found;
+  }
+  if (openDuty(tw.id)) {
+    return s.status(409).json({ error: isHandover ? `${tw.name} already has an active duty in progress.` : "You already have an active duty in progress." });
+  }
+  if (!SHIFTS.includes(shift)) {
+    return s.status(400).json({ error: "Choose a shift (Morning, Evening, or Night)." });
+  }
+  if (dayStatus(d) !== "open") {
+    return s.status(409).json({ error: "Today's business day is already closed. Ask the owner to reopen it." });
+  }
+  const lastDuty = db.prepare("select * from duties where worker_id=? and status in ('closed', 'submitted') order by id desc limit 1").get(q.user.id);
+  if (!lastDuty) {
+    return s.status(400).json({ error: "No closed duty found to assign from. Your manager must assign your first duty." });
+  }
+  const nm = nozzleMap(st);
+  const prevLines = db.prepare("select * from duty_lines where duty_id=? order by id").all(lastDuty.id);
+  if (!prevLines.length) {
+    return s.status(400).json({ error: "No nozzles found in your latest closed duty." });
+  }
+  const newLines = [];
+  for (const l of prevLines) {
+    const n = nm[l.nozzle_id];
+    if (!n || n.active === false) {
+      return s.status(400).json({ error: `Nozzle ${n ? n.name : l.nozzle_id} is no longer active.` });
+    }
+    const busy = db.prepare("select u.name w from duty_lines dl join duties du on du.id=dl.duty_id join users u on u.id=du.worker_id where dl.nozzle_id=? and du.status='open' limit 1").get(l.nozzle_id);
+    if (busy) {
+      return s.status(409).json({ error: `${n.name} is currently open with ${busy.w}.` });
+    }
+    const rate = rateFor(st, n.fuel, d);
+    if (rate == null) {
+      return s.status(400).json({ error: `Set the ${n.fuel} rate in Pump setup first.` });
+    }
+    const opening = l.closing != null ? l.closing : (lastClose(l.nozzle_id).c ?? (n.open ?? null));
+    if (opening == null) {
+      return s.status(400).json({ error: `Set the opening reading for ${n.name} in Pump setup first.` });
+    }
+    newLines.push({ id: l.nozzle_id, opening, rate });
+  }
+  const customNote = String(note || "").trim();
+  const dutyNote = isHandover ? (customNote ? `Handover from ${q.user.name}: ${customNote}` : `Handover from ${q.user.name}`) : customNote;
+
+  const dutyId = db.transaction(() => {
+    const did = db.prepare("insert into duties(worker_id,d,shift,started,assigned_by,note) values(?,?,?,?,?,?)")
+      .run(tw.id, d, shift, now(), q.user.id, dutyNote).lastInsertRowid;
+    newLines.forEach((line) => {
+      db.prepare("insert into duty_lines(duty_id,nozzle_id,opening,rate) values(?,?,?,?)")
+        .run(did, line.id, line.opening, line.rate);
+    });
+    return did;
+  })();
+  s.json({ id: dutyId, target_name: tw.name, is_handover: isHandover, ok: true });
 });
 app.delete("/api/duties/:id", need("owner", "manager"), (q, s) => {
   const r = db.transaction(() => {

@@ -126,6 +126,6 @@ Keep copies somewhere off the VM too (your computer or Google Drive).
 - After 5 wrong passwords, that mobile number is locked for 15 minutes.
 - Forgot the owner password? Stop the server, then run:
   ```bash
-  node -e "const D=require('better-sqlite3'),b=require('bcryptjs');new D('data.db').prepare('update users set hash=? where role=\'owner\'').run(b.hashSync('NewPass123',10))"
+  node -e "const {openDatabase}=require('./sqlite-adapter'),b=require('bcryptjs'); openDatabase('data.db').then(db=>{ db.prepare('update users set hash=? where role=\\'owner\\'').run(b.hashSync('NewPass123',10)); db.saveNow(); console.log('Password reset to NewPass123'); })"
   ```
   and log in with `NewPass123`, then change it.

@@ -1,20 +1,21 @@
 {
-  "name": "petrol-app",
+  "name": "petrol-pump-manager",
+  "private": true,
   "version": "1.0.0",
-  "description": "Petrol pump manager server",
-  "main": "server.js",
   "scripts": {
-    "start": "node server.js",
     "dev": "node server.js",
+    "start": "node server.js",
     "build": "node -e \"console.log('Build complete')\"",
+    "preview": "node server.js",
+    "lint": "node -e \"console.log('Lint complete')\"",
+    "reset-owner-pass": "node -e \"const {openDatabase}=require('./sqlite-adapter'),b=require('bcryptjs'); openDatabase('data.db').then(db=>{ db.prepare('update users set hash=? where role=\\'owner\\'').run(b.hashSync('NewPass123',10)); db.saveNow(); console.log('Owner password reset to NewPass123 for mobile 9422556644'); process.exit(0); })\"",
     "reset-login": "node -e \"const {openDatabase}=require('./sqlite-adapter'); openDatabase('data.db').then(d=>{ d.exec('delete from sessions; delete from users;'); d.saveNow(); console.log('Login credentials reset.'); process.exit(0); })\""
   },
-  "keywords": [],
-  "author": "",
-  "license": "UNLICENSED",
   "dependencies": {
+    "@google/genai": "^2.4.0",
     "bcryptjs": "^3.0.3",
-    "express": "^5.2.1",
+    "dotenv": "^17.2.3",
+    "express": "^4.21.2",
     "sql.js": "^1.14.2"
   }
 }
