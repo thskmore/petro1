@@ -40,10 +40,19 @@ th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line)}td.r,
 #sheet h2{margin:0 0 4px;font-size:19px}
 .err{color:var(--due);font-size:13px;margin-top:8px;min-height:18px}
 .empty{padding:28px 10px;text-align:center;color:var(--mute)}
-@media print{.noprint,button{display:none!important}body{background:#fff;color:#000}}
+@media print{.noprint,button,#bdg,#modal{display:none!important}body{background:#fff!important;color:#000!important;font-size:12px}.wrap{max-width:100%!important;padding:0!important;margin:0!important}.tbl{border:1px solid #ccc!important;box-shadow:none!important;margin-bottom:12px;page-break-inside:avoid}table{width:100%!important;font-size:11px!important}th,td{padding:6px 8px!important;border-bottom:1px solid #ccc!important}h1{font-size:15px!important;color:#000!important;margin-top:16px!important}.sub{color:#555!important;font-size:11px!important}}
 #bdg{display:none;position:fixed;top:env(safe-area-inset-top,0px);left:0;right:0;background:var(--due);color:#fff;padding:8px 12px;font-size:14px;z-index:9;text-align:center}
 @keyframes spin{to{transform:rotate(360deg)}}
+.chart-box{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-top:12px;position:relative}
+.chart-tooltip{position:absolute;pointer-events:none;background:var(--card);border:1px solid var(--line);padding:8px 10px;border-radius:8px;font-size:12px;line-height:1.35;box-shadow:0 4px 14px rgba(0,0,0,.15);z-index:20;display:none;max-width:240px;color:var(--ink)}
+.an-kpi{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-top:10px}
+.an-kpi-card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px}
+.an-chip{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:4px 9px;border-radius:14px;border:1px solid var(--line);background:var(--card);cursor:default}
+.an-chip i{display:inline-block;width:9px;height:9px;border-radius:50%}
 </style>
+<script src="/d3.min.js"></script>
+<script src="/jspdf.umd.min.js"></script>
+<script src="/jspdf.plugin.autotable.min.js"></script>
 </head>
 <body>
 <div id="bdg"></div>
@@ -64,7 +73,7 @@ function inr(n){return "₹"+Math.round(n).toLocaleString("en-IN")}
 function esc(s){return String(s==null?"":s).replace(/[&<>"]/g,function(c){return{"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]})}
 function today(){return new Date().toISOString().slice(0,10)}
 function find(id){if(!S||!S.c)return null;return S.c.filter(function(c){return c.id==id})[0]}
-function render(){if(!S)S=emptyS();if(!S.c)S.c=[];if(SRV&&!ME)return;if(tab=="inv")return renderInv();if(tab=="stock")return renderStock();if(tab=="sup")return renderSup();if(tab=="book")return renderBook();if(tab=="rep")return renderRep();if(tab=="bak"){tab="setup";SU="bak";return renderSetup();}if(tab=="team"){tab="setup";SU="team";return renderSetup();}if(tab=="credit")return renderCredit();if(tab=="duty")return renderDutyTab();if(tab=="tanks")return renderTanks();if(tab=="wdip")return loadDip();if(tab=="pay")return renderSalary();if(tab=="setup")return renderSetup();if(tab=="mypay")return loadMyPay();if(tab=="wduty")return loadW();var h="";
+function render(){if(!S)S=emptyS();if(!S.c)S.c=[];if(SRV&&!ME)return;if(tab=="inv")return renderInv();if(tab=="stock")return renderStock();if(tab=="sup")return renderSup();if(tab=="book")return renderBook();if(tab=="rep")return renderRep();if(tab=="analytics")return renderAnalytics();if(tab=="audit")return renderAudit();if(tab=="bak"){tab="setup";SU="bak";return renderSetup();}if(tab=="team"){tab="setup";SU="team";return renderSetup();}if(tab=="credit")return renderCredit();if(tab=="duty")return renderDutyTab();if(tab=="tanks")return renderTanks();if(tab=="wdip")return loadDip();if(tab=="pay")return renderSalary();if(tab=="setup")return renderSetup();if(tab=="mypay")return loadMyPay();if(tab=="wduty")return loadW();var h="";
 if(!view){var tot=S.c.reduce(function(s,c){return s+due(c)},0),q=(document.getElementById("q")||{}).value||"";
 h+=nav()+pendHtml()+'<h1>Total credit outstanding</h1><div class="total">'+inr(tot)+'</div><div class="row"><input id="q" placeholder="Search name or vehicle" value="'+esc(q)+'" oninput="render();var i=document.getElementById(\'q\');i.focus();i.setSelectionRange(99,99)"><button onclick="custForm()">Add customer</button></div><button class="ghost" style="width:100%;margin-top:8px" onclick="bulkForm()">Send reminders to everyone with dues</button><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" style="width:auto;margin:0" '+(onlyDue?'checked':'')+' onchange="onlyDue=this.checked;render()">Only customers with dues</label>';
 var l=S.c.filter(function(c){var t=(c.name+c.veh.join(" ")).toLowerCase();return t.indexOf(q.toLowerCase())>-1&&(!onlyDue||due(c)>0)});
@@ -73,7 +82,7 @@ l.forEach(function(c){var d=due(c),p=c.limit?Math.min(100,d/c.limit*100):0;
 h+='<div class="cust" tabindex="0"'+(c.active===false?' style="opacity:.6"':'')+' onclick="view='+c.id+';render()" onkeydown="if(event.key==\'Enter\'){view='+c.id+';render()}"><div class="row"><b>'+esc(c.name)+(c.active===false?' (inactive)':'')+'</b><span class="amt" style="text-align:right;flex:none;color:'+(d>0?'var(--due)':'var(--ok)')+'">'+inr(d)+'</span></div><div class="sub">'+(c.veh.length?esc(c.veh.join(", ")):"No vehicles added")+'</div><div class="bar"><i style="width:'+p+'%;background:'+(p>=90?'var(--due)':p>=70?'var(--warn)':'var(--ok)')+'"></i></div><div class="sub" style="margin-top:4px">'+Math.round(p)+'% of '+inr(c.limit)+' limit used</div></div>'}
 )}else{var c=find(view),d=due(c),bal=0;
 h+='<button class="ghost noprint" onclick="view=null;render()">Back to customers</button><h1 style="margin-top:14px">'+esc(c.name)+'</h1><div class="total">'+inr(d)+'</div><div class="sub">Limit '+inr(c.limit)+' · Available '+inr(Math.max(0,c.limit-d))+'</div><div class="sub">'+esc(c.phone)+(c.gst?' · GST '+esc(c.gst):'')+'</div><div class="sub">Vehicles: '+(c.veh.length?esc(c.veh.join(", ")):"none added")+'</div>'+
-'<div class="btns noprint"><button onclick="entryForm(\'sale\')">Add credit sale</button><button onclick="entryForm(\'pay\')">Receive payment</button><button class="ghost" onclick="remind()">Send WhatsApp reminder</button><button class="ghost" onclick="custForm('+c.id+')">Edit details</button><button class="ghost" onclick="window.print()">Print statement</button><button class="ghost" onclick="stmt()">Share statement</button></div>';
+'<div class="btns noprint"><button onclick="entryForm(\'sale\')">Add credit sale</button><button onclick="entryForm(\'pay\')">Receive payment</button><button class="ghost" style="display:inline-flex;align-items:center;gap:6px" onclick="downloadCustPDF()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>Download PDF</button><button class="ghost" onclick="remind()">Send WhatsApp reminder</button><button class="ghost" onclick="custForm('+c.id+')">Edit details</button><button class="ghost" onclick="window.print()">Print statement</button><button class="ghost" onclick="stmt()">Share statement</button></div>';
 h+=ageing(c)+'<div class="row noprint"><label>From<input type="date" value="'+from+'" onchange="from=this.value;render()"></label><label>To<input type="date" value="'+to+'" onchange="to=this.value;render()"></label></div>';
 h+='<div class="tbl" style="margin-top:12px"><table><tr><th>Date</th><th>Detail</th><th class="r">Amount</th><th class="r">Balance</th><th class="noprint"></th></tr>';var n=0;
 rows(c).forEach(function(o){var x=o.x;if(o.skip)return;n++;
@@ -113,6 +122,249 @@ function delEntry(i){var c=find(view),x=c.e[i];ask("Delete the "+(x.t=="sale"?"s
 function stmt(){var c=find(view),t="Statement for "+c.name+(from||to?" ("+(from||"start")+" to "+(to||"today")+")":"")+"\n";
 rows(c).forEach(function(o){if(!o.skip)t+=o.x.d+" "+(o.x.t=="sale"?"Sale ":"Paid ")+o.x.n+" "+(o.x.t=="sale"?"+":"-")+Math.round(o.x.a)+" | Bal "+Math.round(o.bal)+"\n"});
 t+="Total outstanding: "+inr(due(c));window.open("https://wa.me/91"+c.phone.slice(-10)+"?text="+encodeURIComponent(t),"_blank")}
+function downloadCustPDF(){
+  var jsPDF=(window.jspdf&&window.jspdf.jsPDF)||window.jsPDF;
+  var c=find(view);
+  if(!c){toast("No customer selected.");return}
+  if(!jsPDF){
+    toast("PDF engine unavailable, opening print preview.");
+    window.print();
+    return;
+  }
+  var doc=new jsPDF({orientation:"portrait",unit:"pt",format:"a4"});
+  var bizName=(S.biz&&S.biz.name)||"Petrol Pump Management";
+  var bizAddr=(S.biz&&S.biz.addr)||"";
+  var bizGst=(S.biz&&S.biz.gst)?("GSTIN: "+S.biz.gst):"";
+
+  var periodText="All Historical Entries";
+  if(from&&to)periodText=from+" to "+to;
+  else if(from)periodText="From "+from+" to Present";
+  else if(to)periodText="Up to "+to;
+
+  var currentDue=due(c);
+  var creditLimit=c.limit||0;
+  var availCredit=Math.max(0,creditLimit-currentDue);
+
+  doc.setFillColor(22,38,43);
+  doc.rect(0,0,595.28,64,"F");
+  doc.setTextColor(255,255,255);
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(15);
+  doc.text(bizName.toUpperCase(),30,26);
+  doc.setFont("helvetica","normal");
+  doc.setFontSize(9.5);
+  doc.setTextColor(205,225,228);
+  doc.text("CUSTOMER STATEMENT OF ACCOUNT / LEDGER",30,42);
+  doc.setFontSize(8);
+  doc.setTextColor(170,195,200);
+  var bannerMeta=["Period: "+periodText];
+  if(bizGst)bannerMeta.push(bizGst);
+  bannerMeta.push("Statement Date: "+new Date().toLocaleDateString("en-IN"));
+  doc.text(bannerMeta.join("   |   "),30,55);
+
+  var runTable=function(opts){
+    if(typeof doc.autoTable==="function"){doc.autoTable(opts)}
+    else if(window.jspdf&&typeof window.jspdf.autoTable==="function"){window.jspdf.autoTable(doc,opts)}
+  };
+
+  var curY=78;
+
+  doc.setDrawColor(220,228,230);
+  doc.setFillColor(248,250,251);
+  doc.roundedRect(30,curY,260,78,4,4,"FD");
+  doc.roundedRect(305,curY,260,78,4,4,"FD");
+
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(8.5);
+  doc.setTextColor(100,115,120);
+  doc.text("CUSTOMER DETAILS",40,curY+16);
+
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(12);
+  doc.setTextColor(22,38,43);
+  doc.text(c.name||"Customer",40,curY+32);
+
+  doc.setFont("helvetica","normal");
+  doc.setFontSize(9);
+  doc.setTextColor(60,75,80);
+  var contactStr="Phone: "+(c.phone?("+91 "+c.phone.slice(-10)):"—");
+  if(c.gst)contactStr+="  |  GSTIN: "+c.gst;
+  doc.text(contactStr,40,curY+47);
+
+  var vehStr=(c.veh&&c.veh.length)?("Vehicles: "+c.veh.join(", ")):"Vehicles: None registered";
+  if(vehStr.length>45)vehStr=vehStr.slice(0,43)+"…";
+  doc.text(vehStr,40,curY+62);
+
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(8.5);
+  doc.setTextColor(100,115,120);
+  doc.text("CURRENT ACCOUNT STATUS",315,curY+16);
+
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(9);
+  doc.setTextColor(60,75,80);
+  doc.text("Credit Limit: INR "+creditLimit.toLocaleString("en-IN"),315,curY+32);
+  doc.text("Available Credit: INR "+availCredit.toLocaleString("en-IN"),315,curY+47);
+
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(11);
+  if(currentDue>0){
+    doc.setTextColor(184,50,31);
+    doc.text("Total Outstanding: INR "+currentDue.toLocaleString("en-IN"),315,curY+64);
+  }else{
+    doc.setTextColor(11,122,95);
+    doc.text("Total Outstanding: INR "+currentDue.toLocaleString("en-IN")+" (Nil / Clear)",315,curY+64);
+  }
+
+  curY+=90;
+
+  var paid=c.e.reduce(function(s,x){return s+(x.t=="pay"?x.a:0)},0);
+  var k=[0,0,0,0];
+  var now=Date.now();
+  c.e.filter(function(x){return x.t=="sale"}).sort(function(p,q){return p.d<q.d?-1:1}).forEach(function(x){
+    var r=x.a,u=Math.min(paid,r);
+    paid-=u;r-=u;
+    if(r>0){
+      var dy=Math.floor((now-new Date(x.d))/864e5);
+      k[dy<=30?0:dy<=60?1:dy<=90?2:3]+=r;
+    }
+  });
+
+  var agingBody=[[
+    "INR "+Math.round(k[0]).toLocaleString("en-IN"),
+    "INR "+Math.round(k[1]).toLocaleString("en-IN"),
+    "INR "+Math.round(k[2]).toLocaleString("en-IN"),
+    "INR "+Math.round(k[3]).toLocaleString("en-IN"),
+    "INR "+Math.round(currentDue).toLocaleString("en-IN")
+  ]];
+
+  runTable({
+    startY:curY,
+    margin:{left:30,right:30},
+    head:[["0 - 30 Days","31 - 60 Days","61 - 90 Days","90+ Days (Overdue)","Total Dues"]],
+    body:agingBody,
+    theme:"grid",
+    headStyles:{fillColor:[50,75,82],textColor:255,fontSize:8,fontStyle:"bold",halign:"center"},
+    styles:{fontSize:8.5,cellPadding:3.5,halign:"center"},
+    columnStyles:{
+      3:{textColor:k[3]>0?[184,50,31]:[22,38,43],fontStyle:k[3]>0?"bold":"normal"},
+      4:{fontStyle:"bold",textColor:currentDue>0?[184,50,31]:[11,122,95]}
+    }
+  });
+
+  curY=(doc.lastAutoTable?doc.lastAutoTable.finalY:curY+35)+14;
+
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(10);
+  doc.setTextColor(22,38,43);
+  doc.text("Transaction Ledger Records",30,curY);
+
+  var txRows=rows(c);
+  var tableBody=[];
+  var totalSales=0;
+  var totalPayments=0;
+
+  txRows.forEach(function(o){
+    if(o.skip)return;
+    var x=o.x;
+    var isSale=x.t==="sale";
+    if(isSale)totalSales+=x.a;
+    else totalPayments+=x.a;
+
+    tableBody.push([
+      x.d,
+      isSale?"SALE":"PAYMENT",
+      (isSale?"Credit Sale: ":"Payment Received: ")+(x.n||"—"),
+      isSale?("INR "+x.a.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2})):"—",
+      !isSale?("INR "+x.a.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2})):"—",
+      "INR "+o.bal.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2})
+    ]);
+  });
+
+  if(!tableBody.length){
+    tableBody.push(["—","—","No transactions found in selected date range.","—","—","INR "+currentDue.toLocaleString("en-IN")]);
+  }else{
+    tableBody.push([
+      "TOTAL",
+      "",
+      "Total Period Volume ("+tableBody.length+" entries)",
+      "INR "+totalSales.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2}),
+      "INR "+totalPayments.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2}),
+      "INR "+currentDue.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2})
+    ]);
+  }
+
+  runTable({
+    startY:curY+5,
+    margin:{left:30,right:30},
+    head:[["Date","Type","Particulars / Narration","Debit (+) (INR)","Credit (-) (INR)","Balance (INR)"]],
+    body:tableBody,
+    theme:"striped",
+    headStyles:{fillColor:[22,38,43],textColor:255,fontSize:8,fontStyle:"bold"},
+    styles:{fontSize:7.5,cellPadding:3.5},
+    columnStyles:{
+      0:{cellWidth:55},
+      1:{cellWidth:50,halign:"center",fontStyle:"bold"},
+      2:{cellWidth:"auto"},
+      3:{cellWidth:75,halign:"right"},
+      4:{cellWidth:75,halign:"right"},
+      5:{cellWidth:75,halign:"right",fontStyle:"bold"}
+    },
+    didParseCell:function(data){
+      if(data.row.index===tableBody.length-1&&tableBody.length>1){
+        data.cell.styles.fontStyle="bold";
+        data.cell.styles.fillColor=[238,242,243];
+        if(data.column.index===5){
+          data.cell.styles.textColor=currentDue>0?[184,50,31]:[11,122,95];
+        }
+      }else{
+        if(data.column.index===1){
+          if(data.cell.text[0]==="SALE")data.cell.styles.textColor=[184,50,31];
+          else if(data.cell.text[0]==="PAYMENT")data.cell.styles.textColor=[11,122,95];
+        }
+      }
+    }
+  });
+
+  curY=(doc.lastAutoTable?doc.lastAutoTable.finalY:curY+140)+18;
+
+  if(curY>710){
+    doc.addPage();
+    curY=40;
+  }
+
+  doc.setFont("helvetica","italic");
+  doc.setFontSize(8);
+  doc.setTextColor(120,130,135);
+  doc.text("Notes: Please verify this statement. Report any discrepancy within 7 days. Make payments via UPI or Bank Transfer to "+(bizName||"the pump station")+".",30,curY);
+
+  curY+=25;
+
+  doc.setDrawColor(200,210,215);
+  doc.line(40,curY+30,220,curY+30);
+  doc.line(375,curY+30,555,curY+30);
+
+  doc.setFont("helvetica","normal");
+  doc.setFontSize(8);
+  doc.setTextColor(100,110,115);
+  doc.text("Customer Signature / Stamp",75,curY+42);
+  doc.text("Authorized Signatory (Pump Station)",395,curY+42);
+
+  var totalPages=doc.internal.getNumberOfPages();
+  for(var p=1;p<=totalPages;p++){
+    doc.setPage(p);
+    doc.setFont("helvetica","normal");
+    doc.setFontSize(7.5);
+    doc.setTextColor(150,160,165);
+    doc.text(bizName+"  •  Customer Account Statement  •  Confidential",30,822);
+    doc.text("Page "+p+" of "+totalPages,565,822,{align:"right"});
+  }
+
+  var safeName=(c.name||"Customer").replace(/[^a-zA-Z0-9_-]/g,"_");
+  var filename="Statement-"+safeName+"-"+(from||"start")+"-to-"+(to||today())+".pdf";
+  doc.save(filename);
+  toast("Statement PDF downloaded for "+c.name);
+}
 function remind(){var c=find(view),d=due(c);
 if(d<=0)return openM('<h2>No dues</h2><div class="sub">'+esc(c.name)+' has nothing outstanding.</div><div class="btns"><button onclick="close()">Close</button></div>');
 var m="Dear "+c.name+", your outstanding credit balance at our petrol pump is "+inr(d)+". Please clear it at your earliest convenience. Thank you.";
@@ -122,7 +374,7 @@ function m2(n){return "\u20b9"+n.toFixed(2)}
 function tax(ls,ig){var t=r2(ls.reduce(function(s,l){return s+l.q*l.r},0)),x=r2(t*.18),tot=Math.round(t+x);return{t:t,x:x,tot:tot,ro:r2(tot-t-x),ig:ig}}
 function igstFor(g){return !!(S.biz.gst&&g&&S.biz.gst.slice(0,2)!=g.slice(0,2))}
 function curG(){return dr.cust!="0"?find(dr.cust).gst:dr.wgst}
-function nav(){var T=[["ledger","Ledger"],["inv","Invoices"],["stock","Stock"],["sup","Suppliers"],["book","Book"],["rep","Reports"]];if(SRV)T.splice(1,0,["duty","Duty"],["tanks","Tanks"]);if(SRV&&ME&&(ME.role=="owner"||ME.role=="manager"))T.push(["setup","Pump setup"]);if(SRV&&ME&&ME.role=="owner")T.push(["pay","Salary"]);return ubar()+'<div class="noprint" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px">'+T.map(function(t){return '<button style="padding:10px 0;font-size:13px;min-width:0" class="'+(tab==t[0]?'':'ghost')+'" onclick="tab=\''+t[0]+'\';view=null;iv=null;dr=null;sv=null;render()">'+t[1]+'</button>'}).join("")+'</div>'}
+function nav(){var T=[["ledger","Ledger"],["inv","Invoices"],["stock","Stock"],["sup","Suppliers"],["book","Book"],["rep","Reports"],["analytics","Analytics"]];if(SRV)T.splice(1,0,["duty","Duty"],["tanks","Tanks"]);if(SRV&&ME&&(ME.role=="owner"||ME.role=="manager"))T.push(["audit","AI Audit"],["setup","Pump setup"]);if(SRV&&ME&&ME.role=="owner")T.push(["pay","Salary"]);return ubar()+'<div class="noprint" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px">'+T.map(function(t){return '<button style="padding:10px 0;font-size:13px;min-width:0" class="'+(tab==t[0]?'':'ghost')+'" onclick="tab=\''+t[0]+'\';view=null;iv=null;dr=null;sv=null;render()">'+t[1]+'</button>'}).join("")+'</div>'}
 function renderInv(){var h=nav();
 if(dr)h+=draftHtml();else if(iv)h+=invHtml(iv);else{
 h+='<h1>GST invoices for lubricants and shop items</h1><div class="btns"><button onclick="newInv()">New invoice</button></div>';
@@ -347,24 +599,806 @@ function obForm(){openM('<h2>Opening balances</h2><div class="sub">What each acc
 function saveOb(){var o={};for(var i=0;i<3;i++){var n=parseFloat(v("o"+i));if(isNaN(n))return er("Enter a number for every account (0 if empty).");o[ACC[i]]=n}S.ob=o;save();close();renderBook()}
 var CAT=["Salary","Electricity","Rent","Repairs","Transport","Other"],CATSEL='<label>Category<select id="f6">'+CAT.map(function(c){return '<option>'+c+'</option>'}).join("")+'</select></label>';
 function inR(d){return d>=rf&&d<=rt}
+function getRepData(){
+  var sales=0,cg=0,ig=0,n=0;
+  S.inv.forEach(function(i){if(!inR(i.d))return;n++;sales+=i.t;if(i.ig)ig+=i.x;else cg+=i.x/2});
+  var buy={"Oil company":0,"Dealer":0};
+  S.sup.forEach(function(s){s.e.forEach(function(x){if(x.t=="bill"&&inR(x.d))buy[s.kind]=(buy[s.kind]||0)+x.a})});
+  var ex={},exT=0,inc=0;
+  S.bk.forEach(function(b){if(!inR(b.d))return;if(b.t=="out"){var k=b.cat||"Other";ex[k]=(ex[k]||0)+b.a;exT+=b.a}else if(b.t=="in")inc+=b.a});
+  var net=sales+inc-buy["Oil company"]-buy.Dealer-exT;
+  var expList=Object.keys(ex).sort(function(a,b){return ex[b]-ex[a]}).map(function(k){return {category:k,amount:ex[k]}});
+  var cs=S.c.filter(function(c){return due(c)>0}).sort(function(a,b){return due(b)-due(a)});
+  var ct=cs.reduce(function(s,c){return s+due(c)},0);
+  var cv=0,rv=0;
+  var items=(S.items||[]).map(function(i){
+    var costVal=i.stock*i.buy,sellVal=i.stock*i.sell;
+    cv+=costVal;rv+=sellVal;
+    return {name:i.name,stock:i.stock,unit:i.unit,buy:i.buy,sell:i.sell,costVal:costVal,sellVal:sellVal,isLow:i.stock<=i.low};
+  });
+  return {rf:rf,rt:rt,sales:sales,cg:cg,ig:ig,n:n,buy:buy,ex:ex,exT:exT,inc:inc,net:net,expList:expList,customers:cs,totalDue:ct,items:items,costVal:cv,sellVal:rv};
+}
+function exportRepCSV(){
+  var D=getRepData(),q=function(s){return '"'+String(s==null?'':s).replace(/"/g,'""')+'"'};
+  var lines=[];
+  var bizName=(S.biz&&S.biz.name)||"Petrol Pump Management";
+  lines.push([q("FINANCIAL REPORT"),q(bizName)].join(","));
+  if(S.biz&&S.biz.gst)lines.push([q("GSTIN"),q(S.biz.gst)].join(","));
+  if(S.biz&&S.biz.addr)lines.push([q("Address"),q(S.biz.addr)].join(","));
+  lines.push([q("Report Period"),q(D.rf+" to "+D.rt)].join(","));
+  lines.push([q("Exported On"),q(new Date().toLocaleString("en-IN"))].join(","));
+  lines.push("");
+  lines.push(q("1. PROFIT AND LOSS STATEMENT"));
+  lines.push([q("Item"),q("Amount (INR)")].join(","));
+  lines.push([q("Sales (invoices, before GST)"),D.sales.toFixed(2)].join(","));
+  lines.push([q("Other income"),D.inc.toFixed(2)].join(","));
+  lines.push([q("Purchases: Oil company"),D.buy["Oil company"].toFixed(2)].join(","));
+  lines.push([q("Purchases: Dealers"),D.buy.Dealer.toFixed(2)].join(","));
+  lines.push([q("Operating expenses"),D.exT.toFixed(2)].join(","));
+  lines.push([q("Net Profit / Loss"),D.net.toFixed(2)].join(","));
+  lines.push("");
+  lines.push(q("2. GST COLLECTED SUMMARY"));
+  lines.push([q("Metric"),q("Value")].join(","));
+  lines.push([q("Total Invoices Count"),D.n].join(","));
+  lines.push([q("Taxable Value"),D.sales.toFixed(2)].join(","));
+  lines.push([q("CGST 9%"),D.cg.toFixed(2)].join(","));
+  lines.push([q("SGST 9%"),D.cg.toFixed(2)].join(","));
+  lines.push([q("IGST 18%"),D.ig.toFixed(2)].join(","));
+  lines.push([q("Total GST Tax"), (D.cg*2+D.ig).toFixed(2)].join(","));
+  lines.push("");
+  lines.push(q("3. EXPENSES BY CATEGORY"));
+  lines.push([q("Category"),q("Amount (INR)")].join(","));
+  if(D.expList.length){
+    D.expList.forEach(function(x){lines.push([q(x.category),x.amount.toFixed(2)].join(","))});
+    lines.push([q("Total Expenses"),D.exT.toFixed(2)].join(","));
+  }else{lines.push([q("No expenses in this period"),"0.00"].join(","))}
+  lines.push("");
+  lines.push(q("4. CUSTOMER OUTSTANDING DUES (As of today)"));
+  lines.push([q("Customer Name"),q("Phone"),q("Credit Limit (INR)"),q("Due Amount (INR)"),q("Status")].join(","));
+  if(D.customers.length){
+    D.customers.forEach(function(c){
+      var d=due(c);
+      lines.push([q(c.name),q(c.phone||""),(c.limit||0).toFixed(2),d.toFixed(2),q(d>c.limit?"OVER LIMIT":"Normal")].join(","));
+    });
+    lines.push([q("Total Customer Outstanding"),"","",D.totalDue.toFixed(2),""].join(","));
+  }else{lines.push([q("No outstanding dues"),"","","0.00","All clear"].join(","))}
+  lines.push("");
+  lines.push(q("5. STOCK VALUATION (As of today)"));
+  lines.push([q("Item Name"),q("Current Stock"),q("Unit"),q("Cost Price (INR)"),q("Sale Price (INR)"),q("Valuation At Cost (INR)"),q("Valuation At Selling (INR)"),q("Stock Status")].join(","));
+  if(D.items.length){
+    D.items.forEach(function(i){
+      lines.push([q(i.name),i.stock,q(i.unit||""),i.buy.toFixed(2),i.sell.toFixed(2),i.costVal.toFixed(2),i.sellVal.toFixed(2),q(i.isLow?"LOW STOCK":"OK")].join(","));
+    });
+    lines.push([q("Total Stock Valuation"),"","","","",D.costVal.toFixed(2),D.sellVal.toFixed(2),""].join(","));
+  }else{lines.push([q("No inventory items found"),"","","","","0.00","0.00",""].join(","))}
+  var blob=new Blob(["\uFEFF"+lines.join("\r\n")],{type:"text/csv;charset=utf-8;"});
+  var url=URL.createObjectURL(blob),a=document.createElement("a");
+  a.href=url;
+  a.download="Financial-Report-"+D.rf+"-to-"+D.rt+".csv";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+  toast("Financial report exported to Excel / CSV successfully.");
+}
+function exportRepPDF(){
+  var jsPDF=(window.jspdf&&window.jspdf.jsPDF)||window.jsPDF;
+  if(!jsPDF){toast("PDF engine unavailable, opening print preview.");window.print();return}
+  var D=getRepData();
+  var doc=new jsPDF({orientation:"portrait",unit:"pt",format:"a4"});
+  var bizName=(S.biz&&S.biz.name)||"Petrol Pump Management";
+  var bizAddr=(S.biz&&S.biz.addr)||"";
+  var bizGst=(S.biz&&S.biz.gst)?("GSTIN: "+S.biz.gst):"";
+  doc.setFillColor(22,38,43);
+  doc.rect(0,0,595.28,62,"F");
+  doc.setTextColor(255,255,255);
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(15);
+  doc.text(bizName.toUpperCase(),30,26);
+  doc.setFont("helvetica","normal");
+  doc.setFontSize(9.5);
+  doc.setTextColor(205,225,228);
+  doc.text("FINANCIAL STATEMENT & BUSINESS AUDIT REPORT",30,42);
+  doc.setFontSize(8);
+  doc.setTextColor(170,195,200);
+  var metaParts=["Period: "+D.rf+" to "+D.rt];
+  if(bizGst)metaParts.push(bizGst);
+  metaParts.push("Exported: "+new Date().toLocaleDateString("en-IN"));
+  doc.text(metaParts.join("   |   "),30,54);
+  var runTable=function(opts){
+    if(typeof doc.autoTable==="function"){doc.autoTable(opts)}
+    else if(window.jspdf&&typeof window.jspdf.autoTable==="function"){window.jspdf.autoTable(doc,opts)}
+  };
+  var curY=78;
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(10.5);
+  doc.setTextColor(22,38,43);
+  doc.text("1. Profit & Loss Statement",30,curY);
+  var plBody=[
+    ["Sales (invoices, before GST)","INR "+D.sales.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2})],
+    ["Other income","INR "+D.inc.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2})],
+    ["Purchases: Oil Company","INR "+D.buy["Oil company"].toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2})],
+    ["Purchases: Dealers","INR "+D.buy.Dealer.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2})],
+    ["Operating Expenses","INR "+D.exT.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2})],
+    ["Net Operating Result","INR "+D.net.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2})]
+  ];
+  runTable({
+    startY:curY+5,margin:{left:30,right:30},
+    head:[["P&L Item","Amount"]],body:plBody,theme:"striped",
+    headStyles:{fillColor:[22,38,43],textColor:255,fontSize:8.5,fontStyle:"bold"},
+    styles:{fontSize:8,cellPadding:4},
+    columnStyles:{0:{cellWidth:"auto"},1:{halign:"right",cellWidth:140,fontStyle:"bold"}},
+    didParseCell:function(data){
+      if(data.row.index===plBody.length-1){
+        data.cell.styles.fontStyle="bold";
+        data.cell.styles.fillColor=D.net>=0?[235,248,243]:[253,237,235];
+        if(data.column.index===1)data.cell.styles.textColor=D.net>=0?[11,122,95]:[184,50,31];
+      }
+    }
+  });
+  curY=(doc.lastAutoTable?doc.lastAutoTable.finalY:curY+100)+14;
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(10.5);
+  doc.setTextColor(22,38,43);
+  doc.text("2. GST Collected Summary",30,curY);
+  var gstBody=[
+    ["Invoices Issued in Period",String(D.n)],
+    ["Total Taxable Invoice Value","INR "+D.sales.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2})],
+    ["CGST (9%)","INR "+D.cg.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2})],
+    ["SGST (9%)","INR "+D.cg.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2})],
+    ["IGST (18%)","INR "+D.ig.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2})],
+    ["Total GST Tax Amount","INR "+(D.cg*2+D.ig).toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2})]
+  ];
+  runTable({
+    startY:curY+5,margin:{left:30,right:30},
+    head:[["Tax Item","Tax Amount"]],body:gstBody,theme:"striped",
+    headStyles:{fillColor:[50,75,82],textColor:255,fontSize:8.5,fontStyle:"bold"},
+    styles:{fontSize:8,cellPadding:4},
+    columnStyles:{0:{cellWidth:"auto"},1:{halign:"right",cellWidth:140,fontStyle:"bold"}},
+    didParseCell:function(data){
+      if(data.row.index===gstBody.length-1){
+        data.cell.styles.fontStyle="bold";
+        data.cell.styles.fillColor=[240,245,245];
+      }
+    }
+  });
+  curY=(doc.lastAutoTable?doc.lastAutoTable.finalY:curY+100)+14;
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(10.5);
+  doc.setTextColor(22,38,43);
+  doc.text("3. Expenses by Category",30,curY);
+  var expBody=[];
+  if(D.expList.length){
+    D.expList.forEach(function(x){expBody.push([x.category,"INR "+x.amount.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2})])});
+    expBody.push(["Total Category Expenses","INR "+D.exT.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2})]);
+  }else{expBody.push(["No expenses recorded in this period","INR 0.00"])}
+  runTable({
+    startY:curY+5,margin:{left:30,right:30},
+    head:[["Expense Category","Total Spent"]],body:expBody,theme:"striped",
+    headStyles:{fillColor:[75,90,95],textColor:255,fontSize:8.5,fontStyle:"bold"},
+    styles:{fontSize:8,cellPadding:4},
+    columnStyles:{0:{cellWidth:"auto"},1:{halign:"right",cellWidth:140,fontStyle:"bold"}},
+    didParseCell:function(data){
+      if(D.expList.length&&data.row.index===expBody.length-1){
+        data.cell.styles.fontStyle="bold";
+        data.cell.styles.fillColor=[240,245,245];
+      }
+    }
+  });
+  doc.addPage();
+  curY=35;
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(11);
+  doc.setTextColor(22,38,43);
+  doc.text("4. Customer Outstanding Ledger Balances",30,curY);
+  doc.setFontSize(8);
+  doc.setFont("helvetica","normal");
+  doc.setTextColor(93,110,114);
+  doc.text("As of "+new Date().toLocaleDateString("en-IN")+" | Total Outstanding: INR "+D.totalDue.toLocaleString("en-IN"),30,curY+11);
+  var custBody=[];
+  if(D.customers.length){
+    D.customers.forEach(function(c){
+      var d=due(c);
+      custBody.push([c.name,c.phone||"—",c.limit?("INR "+c.limit.toLocaleString("en-IN")):"No limit","INR "+d.toLocaleString("en-IN"),d>c.limit?"OVER LIMIT":"Normal"]);
+    });
+    custBody.push(["Total Outstanding","","","INR "+D.totalDue.toLocaleString("en-IN"),""]);
+  }else{custBody.push(["No outstanding balances","—","—","INR 0.00","All clear"])}
+  runTable({
+    startY:curY+17,margin:{left:30,right:30},
+    head:[["Customer Name","Phone","Credit Limit","Outstanding Balance","Credit Status"]],body:custBody,theme:"striped",
+    headStyles:{fillColor:[22,38,43],textColor:255,fontSize:8.5,fontStyle:"bold"},
+    styles:{fontSize:8,cellPadding:4},
+    columnStyles:{0:{cellWidth:"auto",fontStyle:"bold"},1:{cellWidth:70},2:{halign:"right",cellWidth:75},3:{halign:"right",cellWidth:85,fontStyle:"bold"},4:{halign:"center",cellWidth:70}},
+    didParseCell:function(data){
+      if(D.customers.length&&data.row.index===custBody.length-1){data.cell.styles.fontStyle="bold";data.cell.styles.fillColor=[240,245,245]}
+      if(data.column.index===4&&data.cell.text[0]==="OVER LIMIT"){data.cell.styles.textColor=[184,50,31];data.cell.styles.fontStyle="bold"}
+    }
+  });
+  curY=(doc.lastAutoTable?doc.lastAutoTable.finalY:curY+140)+16;
+  if(curY>640){doc.addPage();curY=35}
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(11);
+  doc.setTextColor(22,38,43);
+  doc.text("5. Stock Valuation & Inventory",30,curY);
+  doc.setFontSize(8);
+  doc.setFont("helvetica","normal");
+  doc.setTextColor(93,110,114);
+  doc.text("Valuation at Cost: INR "+D.costVal.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2})+"  |  Valuation at Retail: INR "+D.sellVal.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2}),30,curY+11);
+  var stockBody=[];
+  if(D.items.length){
+    D.items.forEach(function(i){
+      stockBody.push([i.name,i.stock+" "+(i.unit||""),"INR "+i.buy.toFixed(2),"INR "+i.sell.toFixed(2),"INR "+i.costVal.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2}),"INR "+i.sellVal.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2}),i.isLow?"LOW STOCK":"OK"]);
+    });
+    stockBody.push(["Total Inventory Valuation","","","","INR "+D.costVal.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2}),"INR "+D.sellVal.toLocaleString("en-IN",{minimumFractionDigits:2,maximumFractionDigits:2}),""]);
+  }else{stockBody.push(["No inventory items recorded","—","—","—","INR 0.00","INR 0.00","—"])}
+  runTable({
+    startY:curY+17,margin:{left:30,right:30},
+    head:[["Item Name","Current Stock","Cost Rate","Sale Rate","Total Cost Value","Total Sale Value","Alert"]],body:stockBody,theme:"striped",
+    headStyles:{fillColor:[50,75,82],textColor:255,fontSize:8.5,fontStyle:"bold"},
+    styles:{fontSize:8,cellPadding:4},
+    columnStyles:{0:{cellWidth:"auto",fontStyle:"bold"},1:{halign:"center",cellWidth:65},2:{halign:"right",cellWidth:50},3:{halign:"right",cellWidth:50},4:{halign:"right",cellWidth:75,fontStyle:"bold"},5:{halign:"right",cellWidth:75,fontStyle:"bold"},6:{halign:"center",cellWidth:55}},
+    didParseCell:function(data){
+      if(D.items.length&&data.row.index===stockBody.length-1){data.cell.styles.fontStyle="bold";data.cell.styles.fillColor=[240,245,245]}
+      if(data.column.index===6&&data.cell.text[0]==="LOW STOCK"){data.cell.styles.textColor=[184,50,31];data.cell.styles.fontStyle="bold"}
+    }
+  });
+  var totalPages=doc.internal.getNumberOfPages();
+  for(var p=1;p<=totalPages;p++){
+    doc.setPage(p);
+    doc.setFont("helvetica","normal");
+    doc.setFontSize(8);
+    doc.setTextColor(150,160,165);
+    doc.text("Petrol Pump Management System  •  Confidential Financial Record",30,822);
+    doc.text("Page "+p+" of "+totalPages,565,822,{align:"right"});
+  }
+  doc.save("Financial-Report-"+D.rf+"-to-"+D.rt+".pdf");
+  toast("Financial report exported to PDF successfully.");
+}
 function rtab(title,head,rows){var h='<h1 style="margin:20px 0 6px;color:var(--ink);font-size:17px;font-weight:800">'+title+'</h1><div class="tbl"><table><tr>'+head.map(function(c,i){return '<th'+(i?' class="r"':'')+'>'+c+'</th>'}).join("")+'</tr>';
 rows.forEach(function(r){h+='<tr>'+r.map(function(c,i){return '<td'+(i?' class="r"':'')+'>'+c+'</td>'}).join("")+'</tr>'});return h+'</table></div>'}
-function renderRep(){var h=nav(),sales=0,cg=0,ig=0,n=0;
-S.inv.forEach(function(i){if(!inR(i.d))return;n++;sales+=i.t;if(i.ig)ig+=i.x;else cg+=i.x/2});
-var buy={"Oil company":0,"Dealer":0};S.sup.forEach(function(s){s.e.forEach(function(x){if(x.t=="bill"&&inR(x.d))buy[s.kind]=(buy[s.kind]||0)+x.a})});
-var ex={},exT=0,inc=0;S.bk.forEach(function(b){if(!inR(b.d))return;if(b.t=="out"){var k=b.cat||"Other";ex[k]=(ex[k]||0)+b.a;exT+=b.a}else if(b.t=="in")inc+=b.a});
-var net=sales+inc-buy["Oil company"]-buy.Dealer-exT;
-h+='<div class="row noprint"><label>From<input type="date" value="'+rf+'" onchange="rf=this.value;renderRep()"></label><label>To<input type="date" value="'+rt+'" onchange="rt=this.value;renderRep()"></label></div><div class="btns noprint"><button class="ghost" onclick="window.print()">Print reports</button></div><div class="sub">Period: '+rf+' to '+rt+'. Customer outstanding and stock are as of today.</div>';
-h+=rtab("Profit and loss",["Item","Amount"],[["Sales (invoices, before GST)",m2(sales)],["Other income",m2(inc)],["Purchases: oil company",m2(buy["Oil company"])],["Purchases: dealers",m2(buy.Dealer)],["Expenses",m2(exT)],["<b>Net</b>",'<b style="color:'+(net<0?'var(--due)':'var(--ok)')+'">'+m2(net)+'</b>']])+'<div class="sub" style="margin-top:6px">Fuel sales are not recorded here yet, so oil company purchases will make the net look lower than it really is.</div>';
-h+=rtab("GST collected",["Item","Amount"],[["Invoices",n],["Taxable value",m2(sales)],["CGST 9%",m2(cg)],["SGST 9%",m2(cg)],["IGST 18%",m2(ig)],["<b>Total tax</b>","<b>"+m2(cg*2+ig)+"</b>"]]);
-var er2=Object.keys(ex).sort(function(a,b){return ex[b]-ex[a]}).map(function(k){return [esc(k),m2(ex[k])]});
-h+=rtab("Expenses by category",["Category","Amount"],er2.length?er2.concat([["<b>Total</b>","<b>"+m2(exT)+"</b>"]]):[["No expenses in this period",""]]);
-var cs=S.c.filter(function(c){return due(c)>0}).sort(function(a,b){return due(b)-due(a)}),ct=0;
-var cr=cs.map(function(c){ct+=due(c);return [esc(c.name)+(due(c)>c.limit?' <span class="sale">(over limit)</span>':''),inr(due(c))]});
-h+=rtab("Customer outstanding",["Customer","Due"],cr.length?cr.concat([["<b>Total</b>","<b>"+inr(ct)+"</b>"]]):[["No dues",""]]);
-var cv=0,rv=0,sr=S.items.map(function(i){cv+=i.stock*i.buy;rv+=i.stock*i.sell;return [esc(i.name)+(i.stock<=i.low?' <span class="sale">(low)</span>':''),i.stock+" "+esc(i.unit),m2(i.stock*i.buy),m2(i.stock*i.sell)]});
-h+='<h1 style="margin:20px 0 6px;color:var(--ink);font-size:17px;font-weight:800">Stock valuation</h1><div class="tbl"><table><tr><th>Item</th><th class="r">Stock</th><th class="r">At cost</th><th class="r">At selling price</th></tr>'+sr.map(function(r){return '<tr><td>'+r[0]+'</td><td class="r">'+r[1]+'</td><td class="r">'+r[2]+'</td><td class="r">'+r[3]+'</td></tr>'}).join("")+'<tr><td colspan="2"><b>Total</b></td><td class="r"><b>'+m2(cv)+'</b></td><td class="r"><b>'+m2(rv)+'</b></td></tr></table></div>';
+function renderRep(){var h=nav(),D=getRepData();
+h+='<div class="print-only" style="display:none;margin-bottom:14px;border-bottom:2px solid #16262b;padding-bottom:8px">';
+h+='<h2 style="margin:0;font-size:18px;color:#16262b">'+esc((S.biz&&S.biz.name)||"Petrol Pump Management")+'</h2>';
+h+='<div style="font-size:11px;color:#555">'+esc((S.biz&&S.biz.addr)||"")+(S.biz&&S.biz.gst?' | GSTIN: '+esc(S.biz.gst):'')+'</div>';
+h+='<div style="font-size:11px;font-weight:700;margin-top:4px">Financial Statement: '+D.rf+' to '+D.rt+' (Exported: '+new Date().toLocaleDateString("en-IN")+')</div>';
+h+='</div>';
+h+='<div class="row noprint"><label>From<input type="date" value="'+rf+'" onchange="rf=this.value;renderRep()"></label><label>To<input type="date" value="'+rt+'" onchange="rt=this.value;renderRep()"></label></div>';
+h+='<div class="btns noprint" style="display:flex;gap:8px;flex-wrap:wrap;margin:12px 0 6px">';
+h+='<button style="display:inline-flex;align-items:center;gap:6px" onclick="exportRepPDF()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>Export PDF</button>';
+h+='<button class="ghost" style="display:inline-flex;align-items:center;gap:6px" onclick="exportRepCSV()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><path d="M8 13h2"></path><path d="M8 17h2"></path><path d="M14 13h2"></path><path d="M14 17h2"></path></svg>Export Excel / CSV</button>';
+h+='<button class="ghost" style="display:inline-flex;align-items:center;gap:6px" onclick="window.print()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>Print View</button>';
+h+='</div>';
+h+='<div class="sub">Period: '+rf+' to '+rt+'. Customer outstanding and stock are as of today.</div>';
+h+=rtab("Profit and loss",["Item","Amount"],[["Sales (invoices, before GST)",m2(D.sales)],["Other income",m2(D.inc)],["Purchases: oil company",m2(D.buy["Oil company"])],["Purchases: dealers",m2(D.buy.Dealer)],["Expenses",m2(D.exT)],["<b>Net</b>",'<b style="color:'+(D.net<0?'var(--due)':'var(--ok)')+'">'+m2(D.net)+'</b>']])+'<div class="sub" style="margin-top:6px">Fuel sales are not recorded here yet, so oil company purchases will make the net look lower than it really is.</div>';
+h+=rtab("GST collected",["Item","Amount"],[["Invoices",D.n],["Taxable value",m2(D.sales)],["CGST 9%",m2(D.cg)],["SGST 9%",m2(D.cg)],["IGST 18%",m2(D.ig)],["<b>Total tax</b>","<b>"+m2(D.cg*2+D.ig)+"</b>"]]);
+var er2=D.expList.map(function(x){return [esc(x.category),m2(x.amount)]});
+h+=rtab("Expenses by category",["Category","Amount"],er2.length?er2.concat([["<b>Total</b>","<b>"+m2(D.exT)+"</b>"]]):[["No expenses in this period",""]]);
+var cr=D.customers.map(function(c){return [esc(c.name)+(due(c)>c.limit?' <span class="sale">(over limit)</span>':''),inr(due(c))]});
+h+=rtab("Customer outstanding",["Customer","Due"],cr.length?cr.concat([["<b>Total</b>","<b>"+inr(D.totalDue)+"</b>"]]):[["No dues",""]]);
+var sr=D.items.map(function(i){return [esc(i.name)+(i.isLow?' <span class="sale">(low)</span>':''),i.stock+" "+esc(i.unit),m2(i.costVal),m2(i.sellVal)]});
+h+='<h1 style="margin:20px 0 6px;color:var(--ink);font-size:17px;font-weight:800">Stock valuation</h1><div class="tbl"><table><tr><th>Item</th><th class="r">Stock</th><th class="r">At cost</th><th class="r">At selling price</th></tr>'+sr.map(function(r){return '<tr><td>'+r[0]+'</td><td class="r">'+r[1]+'</td><td class="r">'+r[2]+'</td><td class="r">'+r[3]+'</td></tr>'}).join("")+'<tr><td colspan="2"><b>Total</b></td><td class="r"><b>'+m2(D.costVal)+'</b></td><td class="r"><b>'+m2(D.sellVal)+'</b></td></tr></table></div>';
 document.getElementById("app").innerHTML=h}
+
+// ---- Analytics & D3.js Visualizations
+var AN_DATA=null,AN_RANGE="30",AN_FROM="",AN_TO="",AN_METRIC="vol",AN_FUEL_VIEW="total",AN_EXP_VIEW="donut",AN_LOADING=false;
+function dAgo(n){return new Date(Date.now()-n*864e5).toISOString().slice(0,10)}
+function getAnFrom(){
+  if(AN_RANGE==="7")return dAgo(7);
+  if(AN_RANGE==="30")return dAgo(30);
+  if(AN_RANGE==="90")return dAgo(90);
+  if(AN_RANGE==="all")return "";
+  if(AN_RANGE==="custom")return AN_FROM;
+  return dAgo(30);
+}
+function getAnTo(){
+  if(AN_RANGE==="all")return "";
+  if(AN_RANGE==="custom")return AN_TO;
+  return today();
+}
+function setAnRange(r){
+  AN_RANGE=r;
+  if(r!=="custom"){loadAnalytics(true)}else{drawAnalytics()}
+}
+function applyCustomAnRange(){
+  var fi=document.getElementById("anFromInput"),ti=document.getElementById("anToInput");
+  AN_FROM=fi?fi.value:"";AN_TO=ti?ti.value:"";loadAnalytics(true);
+}
+function setAnMetric(m){AN_METRIC=m;drawAnalytics()}
+function setAnFuelView(v){AN_FUEL_VIEW=v;drawAnalytics()}
+function setAnExpView(v){AN_EXP_VIEW=v;drawAnalytics()}
+function renderAnalytics(){
+  tab="analytics";
+  if(!AN_DATA&&!AN_LOADING){loadAnalytics(true)}else{drawAnalytics()}
+}
+function loadAnalytics(force){
+  if(AN_DATA&&!force){drawAnalytics();return}
+  AN_LOADING=true;drawAnalytics();
+  var f=getAnFrom(),t=getAnTo(),p=[];
+  if(f)p.push("from="+f);
+  if(t)p.push("to="+t);
+  var url="/api/analytics"+(p.length?"?"+p.join("&"):"");
+  if(!SRV){setTimeout(function(){AN_LOADING=false;drawAnalytics()},100);return}
+  api("GET",url).then(function(res){
+    AN_DATA=res;AN_LOADING=false;
+    if(tab==="analytics")drawAnalytics();
+  }).catch(function(err){
+    AN_LOADING=false;badge(err.error||"Could not load analytics.");
+    if(tab==="analytics")drawAnalytics();
+  });
+}
+function drawAnalytics(){
+  var h=nav();
+  h+='<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">';
+  h+='<div><h1 style="font-size:18px;font-weight:800;color:var(--ink);margin:0">Analytics</h1><div class="sub">Fuel sales trends & expense distributions</div></div>';
+  h+='<div class="btns noprint" style="margin:0"><button class="ghost" style="padding:7px 12px;font-size:13px" onclick="loadAnalytics(true)">↻ Refresh</button></div>';
+  h+='</div>';
+
+  var ranges=[["7","Last 7 Days"],["30","Last 30 Days"],["90","Last 90 Days"],["all","All Time"],["custom","Custom"]];
+  h+='<div class="noprint" style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;margin-bottom:8px">';
+  ranges.forEach(function(r){
+    var act=AN_RANGE===r[0];
+    h+='<button style="padding:7px 12px;font-size:13px;white-space:nowrap" class="'+(act?'':'ghost')+'" onclick="setAnRange(\''+r[0]+'\')">'+r[1]+'</button>';
+  });
+  h+='</div>';
+
+  if(AN_RANGE==="custom"){
+    h+='<div class="row noprint" style="margin-bottom:12px;background:var(--card);padding:10px;border:1px solid var(--line);border-radius:8px">';
+    h+='<label style="margin:0">From<input id="anFromInput" type="date" value="'+(AN_FROM||dAgo(30))+'"></label>';
+    h+='<label style="margin:0">To<input id="anToInput" type="date" value="'+(AN_TO||today())+'"></label>';
+    h+='<button style="align-self:flex-end;margin-bottom:2px" onclick="applyCustomAnRange()">Apply</button>';
+    h+='</div>';
+  }
+
+  if(AN_LOADING){
+    h+='<div class="empty"><div style="display:inline-block;width:24px;height:24px;border:3px solid var(--line);border-top-color:var(--ok);border-radius:50%;animation:spin .8s linear infinite;margin-bottom:8px"></div><br/>Analyzing fuel sales & expenses...</div>';
+    document.getElementById("app").innerHTML=h;
+    return;
+  }
+
+  if(!AN_DATA||!AN_DATA.summary){
+    h+='<div class="empty">No analytics data available. Complete duty shifts to see trends.</div>';
+    document.getElementById("app").innerHTML=h;
+    return;
+  }
+
+  var sum=AN_DATA.summary;
+  var daily=AN_DATA.daily||[];
+  var monthly=AN_DATA.monthly||[];
+  var fuels=AN_DATA.fuelBreakdown||[];
+  var exps=AN_DATA.expenseBreakdown||[];
+
+  h+='<div class="an-kpi">';
+  h+='<div class="an-kpi-card">';
+  h+='<div class="sub" style="font-weight:700;text-transform:uppercase;font-size:11px;letter-spacing:.5px">Total Fuel Dispensed</div>';
+  h+='<div style="font-size:22px;font-weight:800;color:var(--ink);margin:4px 0">'+lt(sum.totalLitres)+'</div>';
+  h+='<div class="sub">Daily avg: <b>'+lt(sum.avgDailyLitres)+'</b></div>';
+  h+='</div>';
+
+  h+='<div class="an-kpi-card">';
+  h+='<div class="sub" style="font-weight:700;text-transform:uppercase;font-size:11px;letter-spacing:.5px">Fuel Sales Revenue</div>';
+  h+='<div style="font-size:22px;font-weight:800;color:var(--ok);margin:4px 0">'+inr(sum.totalRevenue)+'</div>';
+  h+='<div class="sub">Daily avg: <b>'+inr(sum.avgDailyRevenue)+'</b></div>';
+  h+='</div>';
+
+  h+='<div class="an-kpi-card">';
+  h+='<div class="sub" style="font-weight:700;text-transform:uppercase;font-size:11px;letter-spacing:.5px">Total Expenses</div>';
+  h+='<div style="font-size:22px;font-weight:800;color:var(--due);margin:4px 0">'+inr(sum.totalExpenses)+'</div>';
+  h+='<div class="sub">Shift: '+inr(sum.shiftExpenses)+' &middot; Book: '+inr(sum.bookExpenses)+'</div>';
+  h+='</div>';
+
+  h+='<div class="an-kpi-card">';
+  h+='<div class="sub" style="font-weight:700;text-transform:uppercase;font-size:11px;letter-spacing:.5px">Net Margin</div>';
+  h+='<div style="font-size:22px;font-weight:800;color:'+(sum.netFuelMargin>=0?'var(--ink)':'var(--due)')+';margin:4px 0">'+inr(sum.netFuelMargin)+'</div>';
+  h+='<div class="sub">'+sum.dutiesCount+' shifts across '+sum.totalDays+' days</div>';
+  h+='</div>';
+  h+='</div>';
+
+  // Section 1: Daily Trends
+  h+='<div class="chart-box">';
+  h+='<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:8px">';
+  h+='<div><h2 style="font-size:15px;margin:0 0 2px">Daily fuel sales trends</h2><div class="sub">Day-by-day sales trajectory</div></div>';
+  h+='<div class="noprint" style="display:flex;gap:4px;flex-wrap:wrap">';
+  h+='<button style="padding:4px 8px;font-size:11px" class="'+(AN_METRIC==='vol'?'':'ghost')+'" onclick="setAnMetric(\'vol\')">Litres (L)</button>';
+  h+='<button style="padding:4px 8px;font-size:11px" class="'+(AN_METRIC==='rev'?'':'ghost')+'" onclick="setAnMetric(\'rev\')">Revenue (₹)</button>';
+  h+='<button style="padding:4px 8px;font-size:11px" class="'+(AN_FUEL_VIEW==='total'?'':'ghost')+'" onclick="setAnFuelView(\'total\')">Overall</button>';
+  h+='<button style="padding:4px 8px;font-size:11px" class="'+(AN_FUEL_VIEW==='byfuel'?'':'ghost')+'" onclick="setAnFuelView(\'byfuel\')">By fuel</button>';
+  h+='</div></div>';
+
+  h+='<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0 10px">';
+  if(AN_FUEL_VIEW==='byfuel'){
+    h+='<span class="an-chip"><i style="background:#2563eb"></i> Diesel (HSD)</span>';
+    h+='<span class="an-chip"><i style="background:#059669"></i> Petrol (MS)</span>';
+    h+='<span class="an-chip"><i style="background:#d97706"></i> Power petrol</span>';
+  }else{
+    h+='<span class="an-chip"><i style="background:#0b7a5f"></i> Total Daily '+(AN_METRIC==='vol'?'Litres':'Revenue')+'</span>';
+  }
+  h+='</div>';
+
+  h+='<div id="d3-daily-chart" style="width:100%;min-height:230px;position:relative"></div>';
+  h+='</div>';
+
+  // Section 2: Monthly Trends
+  h+='<div class="chart-box">';
+  h+='<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:8px">';
+  h+='<div><h2 style="font-size:15px;margin:0 0 2px">Monthly fuel sales trends</h2><div class="sub">Total volume and revenue per calendar month</div></div>';
+  h+='<div class="noprint" style="display:flex;gap:4px">';
+  h+='<button style="padding:4px 8px;font-size:11px" class="'+(AN_METRIC==='vol'?'':'ghost')+'" onclick="setAnMetric(\'vol\')">Litres</button>';
+  h+='<button style="padding:4px 8px;font-size:11px" class="'+(AN_METRIC==='rev'?'':'ghost')+'" onclick="setAnMetric(\'rev\')">Revenue</button>';
+  h+='</div></div>';
+
+  h+='<div id="d3-monthly-chart" style="width:100%;min-height:220px;position:relative"></div>';
+
+  if(monthly.length){
+    h+='<div class="tbl" style="margin-top:10px"><table><tr><th>Month</th><th class="r">Litres</th><th class="r">Revenue</th><th class="r">Expenses</th><th class="r">Shifts</th></tr>';
+    monthly.forEach(function(m){
+      var parts=m.month.split("-");
+      var monthNames=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      var mLabel=monthNames[parseInt(parts[1],10)-1]+" "+parts[0];
+      h+='<tr><td><b>'+mLabel+'</b></td><td class="r">'+lt(m.litres)+'</td><td class="r">'+inr(m.revenue)+'</td><td class="r" style="color:var(--due)">'+inr(m.expenses)+'</td><td class="r">'+m.dutiesCount+'</td></tr>';
+    });
+    h+='</table></div>';
+  }
+  h+='</div>';
+
+  // Section 3: Expense Distributions
+  h+='<div class="chart-box">';
+  h+='<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:8px;margin-bottom:8px">';
+  h+='<div><h2 style="font-size:15px;margin:0 0 2px">Expense distributions</h2><div class="sub">Categorized shift & cash book expenses ('+inr(sum.totalExpenses)+' total)</div></div>';
+  h+='<div class="noprint" style="display:flex;gap:4px">';
+  h+='<button style="padding:4px 8px;font-size:11px" class="'+(AN_EXP_VIEW==='donut'?'':'ghost')+'" onclick="setAnExpView(\'donut\')">Donut</button>';
+  h+='<button style="padding:4px 8px;font-size:11px" class="'+(AN_EXP_VIEW==='bars'?'':'ghost')+'" onclick="setAnExpView(\'bars\')">Ranked</button>';
+  h+='</div></div>';
+
+  if(AN_EXP_VIEW==='donut'){
+    h+='<div id="d3-expense-donut" style="display:flex;justify-content:center;align-items:center;min-height:240px;position:relative"></div>';
+  }else{
+    h+='<div id="d3-expense-bars" style="width:100%;min-height:180px;position:relative"></div>';
+  }
+
+  if(exps.length){
+    var catColors=["#ef4444","#f59e0b","#3b82f6","#10b981","#8b5cf6","#ec4899","#6366f1","#14b8a6","#64748b"];
+    h+='<div class="tbl" style="margin-top:10px"><table><tr><th>Category</th><th>Source</th><th class="r">Entries</th><th class="r">Amount</th><th class="r">Share</th></tr>';
+    exps.forEach(function(e,i){
+      var cColor=catColors[i%catColors.length];
+      var srcLabel=e.source==='shift'?'Shift duties':(e.source==='book'?'Cash book':'Duty & Book');
+      h+='<tr><td><span class="an-chip" style="border:0;padding:0"><i style="background:'+cColor+'"></i> '+esc(e.category)+'</span></td><td class="sub">'+srcLabel+'</td><td class="r">'+e.count+'</td><td class="r"><b>'+inr(e.amount)+'</b></td><td class="r">'+e.percentage+'%</td></tr>';
+    });
+    h+='<tr><td colspan="3"><b>Total</b></td><td class="r"><b style="color:var(--due)">'+inr(sum.totalExpenses)+'</b></td><td class="r"><b>100%</b></td></tr>';
+    h+='</table></div>';
+  }
+  h+='</div>';
+
+  // Section 4: Fuel Product Breakdown Cards
+  if(fuels.length){
+    h+='<h2 style="margin:20px 0 6px;color:var(--ink);font-size:16px;font-weight:800">Fuel product breakdown</h2>';
+    h+='<div style="display:flex;flex-direction:column;gap:8px">';
+    fuels.forEach(function(f){
+      var fuelColor=f.fuel.indexOf("Diesel")>-1?"#2563eb":(f.fuel.indexOf("Power")>-1?"#d97706":"#059669");
+      h+='<div class="cust" style="cursor:default;margin:0">';
+      h+='<div class="row"><b><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:'+fuelColor+';margin-right:6px"></span>'+esc(f.fuel)+'</b><span class="amt" style="flex:none">'+inr(f.revenue)+'</span></div>';
+      h+='<div class="sub">Volume: <b>'+lt(f.litres)+'</b> ('+f.litresPct+'% of total fuel volume)</div>';
+      h+='<div class="bar"><i style="width:'+f.litresPct+'%;background:'+fuelColor+'"></i></div>';
+      h+='</div>';
+    });
+    h+='</div>';
+  }
+
+  document.getElementById("app").innerHTML=h;
+  setTimeout(renderAnCharts,20);
+}
+
+function renderAnCharts(){
+  if(!AN_DATA||typeof d3==="undefined")return;
+  var daily=AN_DATA.daily||[];
+  var monthly=AN_DATA.monthly||[];
+  var exps=AN_DATA.expenseBreakdown||[];
+  renderD3DailyChart(daily,AN_METRIC,AN_FUEL_VIEW);
+  renderD3MonthlyChart(monthly,AN_METRIC);
+  if(AN_EXP_VIEW==='donut'){renderD3ExpenseDonut(exps)}else{renderD3ExpenseBars(exps)}
+}
+
+function renderD3DailyChart(dailyData,metric,viewMode){
+  var container=document.getElementById("d3-daily-chart");
+  if(!container||typeof d3==="undefined")return;
+  container.innerHTML="";
+  if(!dailyData||!dailyData.length){
+    container.innerHTML='<div class="empty">No daily fuel sales in this period.</div>';
+    return;
+  }
+  var rect=container.getBoundingClientRect();
+  var width=Math.max(300,rect.width||520);
+  var height=230;
+  var margin={top:20,right:16,bottom:32,left:metric==="rev"?58:50};
+
+  var parseTime=d3.timeParse("%Y-%m-%d");
+  var formatted=dailyData.map(function(d){
+    var obj={date:parseTime(d.date)||new Date(d.date),rawDate:d.date,byFuel:d.byFuel||{}};
+    obj.val=metric==="vol"?(d.litres||0):(d.revenue||0);
+    return obj;
+  });
+
+  var svg=d3.select(container).append("svg")
+    .attr("viewBox","0 0 "+width+" "+height)
+    .attr("width","100%").attr("height",height).style("overflow","visible");
+
+  var tooltip=d3.select(container).append("div").attr("class","chart-tooltip");
+
+  var x=d3.scaleTime().domain(d3.extent(formatted,function(d){return d.date})).range([margin.left,width-margin.right]);
+
+  var fuelTypes=["Diesel (HSD)","Petrol (MS)","Power petrol"];
+  var fuelColors={"Diesel (HSD)":"#2563eb","Petrol (MS)":"#059669","Power petrol":"#d97706","Other":"#7c3aed"};
+
+  var yMax=0;
+  if(viewMode==="byfuel"){
+    formatted.forEach(function(d){
+      fuelTypes.forEach(function(f){
+        var fv=d.byFuel[f]?(metric==="vol"?d.byFuel[f].litres:d.byFuel[f].revenue):0;
+        if(fv>yMax)yMax=fv;
+      });
+    });
+  }else{
+    yMax=d3.max(formatted,function(d){return d.val})||100;
+  }
+  if(yMax<=0)yMax=100;
+
+  var y=d3.scaleLinear().domain([0,yMax*1.15]).range([height-margin.bottom,margin.top]);
+
+  svg.append("g").attr("class","grid").attr("transform","translate("+margin.left+",0)")
+    .call(d3.axisLeft(y).ticks(4).tickSize(-(width-margin.left-margin.right)).tickFormat(""))
+    .call(function(g){g.select(".domain").remove();g.selectAll("line").attr("stroke","var(--line)").attr("stroke-opacity",0.5).attr("stroke-dasharray","3,3")});
+
+  var xAxis=d3.axisBottom(x).ticks(Math.min(formatted.length,Math.floor(width/75))).tickFormat(d3.timeFormat("%d %b"));
+  svg.append("g").attr("transform","translate(0,"+(height-margin.bottom)+")").call(xAxis)
+    .call(function(g){g.select(".domain").attr("stroke","var(--line)");g.selectAll("text").attr("fill","var(--mute)").style("font-size","11px");g.selectAll("line").attr("stroke","var(--line)")});
+
+  var yAxis=d3.axisLeft(y).ticks(4).tickFormat(function(d){
+    if(metric==="rev"){
+      if(d>=100000)return "₹"+(d/100000).toFixed(1)+"L";
+      if(d>=1000)return "₹"+(d/1000).toFixed(0)+"k";
+      return "₹"+d;
+    }else{
+      if(d>=1000)return (d/1000).toFixed(1)+"k L";
+      return d+" L";
+    }
+  });
+  svg.append("g").attr("transform","translate("+margin.left+",0)").call(yAxis)
+    .call(function(g){g.select(".domain").remove();g.selectAll("text").attr("fill","var(--mute)").style("font-size","11px");g.selectAll("line").remove()});
+
+  var defs=svg.append("defs");
+  var grad=defs.append("linearGradient").attr("id","daily-grad").attr("x1","0%").attr("y1","0%").attr("x2","0%").attr("y2","100%");
+  grad.append("stop").attr("offset","0%").attr("stop-color","#0b7a5f").attr("stop-opacity",0.35);
+  grad.append("stop").attr("offset","100%").attr("stop-color","#0b7a5f").attr("stop-opacity",0.0);
+
+  if(viewMode==="total"){
+    var area=d3.area().x(function(d){return x(d.date)}).y0(y(0)).y1(function(d){return y(d.val)}).curve(d3.curveMonotoneX);
+    svg.append("path").datum(formatted).attr("fill","url(#daily-grad)").attr("d",area);
+
+    var line=d3.line().x(function(d){return x(d.date)}).y(function(d){return y(d.val)}).curve(d3.curveMonotoneX);
+    svg.append("path").datum(formatted).attr("fill","none").attr("stroke","#0b7a5f").attr("stroke-width",2.5).attr("d",line);
+
+    svg.selectAll(".dot").data(formatted).enter().append("circle")
+      .attr("cx",function(d){return x(d.date)}).attr("cy",function(d){return y(d.val)})
+      .attr("r",formatted.length>25?2.5:3.5).attr("fill","#fff").attr("stroke","#0b7a5f").attr("stroke-width",2);
+  }else{
+    fuelTypes.forEach(function(fName){
+      var fColor=fuelColors[fName]||"#888";
+      var fLine=d3.line().x(function(d){return x(d.date)}).y(function(d){
+        var val=d.byFuel[fName]?(metric==="vol"?d.byFuel[fName].litres:d.byFuel[fName].revenue):0;
+        return y(val);
+      }).curve(d3.curveMonotoneX);
+      svg.append("path").datum(formatted).attr("fill","none").attr("stroke",fColor).attr("stroke-width",2.2).attr("d",fLine);
+      svg.selectAll(".dot-"+fName.replace(/\W/g,"")).data(formatted).enter().append("circle")
+        .attr("cx",function(d){return x(d.date)}).attr("cy",function(d){
+          var val=d.byFuel[fName]?(metric==="vol"?d.byFuel[fName].litres:d.byFuel[fName].revenue):0;
+          return y(val);
+        }).attr("r",2.5).attr("fill","#fff").attr("stroke",fColor).attr("stroke-width",1.5);
+    });
+  }
+
+  var focusLine=svg.append("line").attr("stroke","var(--ink)").attr("stroke-opacity",0.4).attr("stroke-dasharray","3,3")
+    .attr("y1",margin.top).attr("y2",height-margin.bottom).style("display","none");
+
+  var bisectDate=d3.bisector(function(d){return d.date}).left;
+
+  svg.append("rect")
+    .attr("width",width-margin.left-margin.right).attr("height",height-margin.top-margin.bottom)
+    .attr("transform","translate("+margin.left+","+margin.top+")").attr("fill","transparent")
+    .style("cursor","crosshair")
+    .on("mousemove",function(event){
+      var coords=d3.pointer(event,this);
+      var x0=x.invert(coords[0]+margin.left);
+      var i=bisectDate(formatted,x0,1);
+      var d0=formatted[i-1],d1=formatted[i],d=d0;
+      if(d1&&(x0-d0.date>d1.date-x0))d=d1;
+      if(!d)return;
+      var cx=x(d.date);
+      focusLine.attr("x1",cx).attr("x2",cx).style("display",null);
+      var th='<b style="color:var(--ink)">'+d.rawDate+'</b><br/>';
+      th+=(metric==="vol"?"Volume: <b>"+lt(d.val)+"</b>":"Revenue: <b>"+inr(d.val)+"</b>")+"<br/>";
+      var fItems=[];
+      fuelTypes.forEach(function(f){
+        if(d.byFuel[f]){
+          var fv=metric==="vol"?lt(d.byFuel[f].litres):inr(d.byFuel[f].revenue);
+          fItems.push('<span style="color:'+fuelColors[f]+'">● '+f+': '+fv+'</span>');
+        }
+      });
+      if(fItems.length)th+='<div style="margin-top:3px;font-size:11px">'+fItems.join("<br/>")+'</div>';
+      tooltip.html(th).style("display","block")
+        .style("left",Math.min(width-170,Math.max(10,cx-80))+"px")
+        .style("top","10px");
+    })
+    .on("mouseleave",function(){
+      focusLine.style("display","none");tooltip.style("display","none");
+    });
+}
+
+function renderD3MonthlyChart(monthlyData,metric){
+  var container=document.getElementById("d3-monthly-chart");
+  if(!container||typeof d3==="undefined")return;
+  container.innerHTML="";
+  if(!monthlyData||!monthlyData.length){
+    container.innerHTML='<div class="empty">No monthly sales data available.</div>';
+    return;
+  }
+  var rect=container.getBoundingClientRect();
+  var width=Math.max(300,rect.width||520);
+  var height=220;
+  var margin={top:28,right:16,bottom:35,left:metric==="rev"?60:50};
+
+  var formatted=monthlyData.map(function(m){
+    var parts=m.month.split("-");
+    var monthNames=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    var label=monthNames[parseInt(parts[1],10)-1]+" '"+parts[0].slice(2);
+    return {month:m.month,label:label,litres:m.litres||0,revenue:m.revenue||0,val:metric==="vol"?(m.litres||0):(m.revenue||0),duties:m.dutiesCount||0};
+  });
+
+  var svg=d3.select(container).append("svg")
+    .attr("viewBox","0 0 "+width+" "+height).attr("width","100%").attr("height",height);
+  var tooltip=d3.select(container).append("div").attr("class","chart-tooltip");
+
+  var x=d3.scaleBand().domain(formatted.map(function(d){return d.label})).range([margin.left,width-margin.right]).padding(0.38);
+  var yMax=d3.max(formatted,function(d){return d.val})||100;
+  var y=d3.scaleLinear().domain([0,yMax*1.2]).range([height-margin.bottom,margin.top]);
+
+  svg.append("g").attr("transform","translate("+margin.left+",0)")
+    .call(d3.axisLeft(y).ticks(4).tickSize(-(width-margin.left-margin.right)).tickFormat(""))
+    .call(function(g){g.select(".domain").remove();g.selectAll("line").attr("stroke","var(--line)").attr("stroke-opacity",0.5).attr("stroke-dasharray","3,3")});
+
+  svg.append("g").attr("transform","translate(0,"+(height-margin.bottom)+")").call(d3.axisBottom(x))
+    .call(function(g){g.select(".domain").attr("stroke","var(--line)");g.selectAll("text").attr("fill","var(--ink)").style("font-weight","600").style("font-size","12px");g.selectAll("line").remove()});
+
+  svg.append("g").attr("transform","translate("+margin.left+",0)").call(d3.axisLeft(y).ticks(4).tickFormat(function(d){
+    if(metric==="rev"){
+      if(d>=100000)return "₹"+(d/100000).toFixed(1)+"L";
+      return "₹"+(d/1000).toFixed(0)+"k";
+    }else{
+      if(d>=1000)return (d/1000).toFixed(0)+"k L";
+      return d+" L";
+    }
+  })).call(function(g){g.select(".domain").remove();g.selectAll("text").attr("fill","var(--mute)").style("font-size","11px");g.selectAll("line").remove()});
+
+  svg.selectAll(".bar").data(formatted).enter().append("rect").attr("class","bar")
+    .attr("x",function(d){return x(d.label)}).attr("y",function(d){return y(d.val)})
+    .attr("width",x.bandwidth()).attr("height",function(d){return Math.max(0,y(0)-y(d.val))})
+    .attr("rx",5).attr("ry",5).attr("fill","#0b7a5f").style("cursor","pointer")
+    .on("mouseenter",function(event,d){
+      d3.select(this).attr("fill","#09634d");
+      var th='<b>'+d.label+'</b><br/>Litres: <b>'+lt(d.litres)+'</b><br/>Revenue: <b>'+inr(d.revenue)+'</b><br/>Shifts: '+d.duties;
+      tooltip.html(th).style("display","block")
+        .style("left",Math.min(width-150,Math.max(10,x(d.label)-30))+"px")
+        .style("top",Math.max(5,y(d.val)-50)+"px");
+    })
+    .on("mouseleave",function(){
+      d3.select(this).attr("fill","#0b7a5f");tooltip.style("display","none");
+    });
+
+  svg.selectAll(".bar-label").data(formatted).enter().append("text")
+    .attr("x",function(d){return x(d.label)+x.bandwidth()/2}).attr("y",function(d){return y(d.val)-6})
+    .attr("text-anchor","middle").attr("fill","var(--ink)").style("font-size","11px").style("font-weight","600")
+    .text(function(d){
+      if(metric==="rev"){return d.val>=100000?"₹"+(d.val/100000).toFixed(1)+"L":"₹"+(d.val/1000).toFixed(0)+"k"}
+      return d.val>=1000?(d.val/1000).toFixed(1)+"k L":d.val+" L";
+    });
+
+  if(formatted.length>1){
+    var line=d3.line().x(function(d){return x(d.label)+x.bandwidth()/2}).y(function(d){return y(d.val)}).curve(d3.curveMonotoneX);
+    svg.append("path").datum(formatted).attr("fill","none").attr("stroke","var(--warn)").attr("stroke-width",2).attr("stroke-dasharray","4,3").attr("d",line);
+    svg.selectAll(".traj-dot").data(formatted).enter().append("circle")
+      .attr("cx",function(d){return x(d.label)+x.bandwidth()/2}).attr("cy",function(d){return y(d.val)}).attr("r",3).attr("fill","var(--warn)");
+  }
+}
+
+function renderD3ExpenseDonut(expenseData){
+  var container=document.getElementById("d3-expense-donut");
+  if(!container||typeof d3==="undefined")return;
+  container.innerHTML="";
+  if(!expenseData||!expenseData.length){
+    container.innerHTML='<div class="empty">No expenses recorded in this period.</div>';
+    return;
+  }
+  var rect=container.getBoundingClientRect();
+  var width=Math.min(360,Math.max(260,rect.width||320));
+  var height=240;
+  var radius=Math.min(width,height)/2-12;
+  var innerRadius=radius*0.62;
+
+  var colors=["#ef4444","#f59e0b","#3b82f6","#10b981","#8b5cf6","#ec4899","#6366f1","#14b8a6","#64748b"];
+  var colorScale=d3.scaleOrdinal().range(colors);
+  var totalAmt=d3.sum(expenseData,function(d){return d.amount});
+
+  var svg=d3.select(container).append("svg")
+    .attr("viewBox","0 0 "+width+" "+height).attr("width",width).attr("height",height)
+    .append("g").attr("transform","translate("+(width/2)+","+(height/2)+")");
+
+  var pie=d3.pie().value(function(d){return d.amount}).sort(null).padAngle(0.02);
+  var arc=d3.arc().innerRadius(innerRadius).outerRadius(radius).cornerRadius(4);
+  var arcHover=d3.arc().innerRadius(innerRadius-2).outerRadius(radius+7).cornerRadius(4);
+
+  var centerLabel=svg.append("text").attr("text-anchor","middle").attr("dy","-4px").attr("fill","var(--ink)").style("font-size","17px").style("font-weight","800").text(inr(totalAmt));
+  var centerSub=svg.append("text").attr("text-anchor","middle").attr("dy","18px").attr("fill","var(--mute)").style("font-size","11px").style("font-weight","600").text("Total Expenses");
+
+  svg.selectAll(".slice").data(pie(expenseData)).enter().append("path").attr("class","slice")
+    .attr("d",arc).attr("fill",function(d,i){return colorScale(i)}).style("cursor","pointer")
+    .on("mouseenter",function(event,d){
+      d3.select(this).transition().duration(150).attr("d",arcHover);
+      centerLabel.text(inr(d.data.amount));
+      centerSub.text(d.data.category+" ("+d.data.percentage+"%)");
+    })
+    .on("mouseleave",function(){
+      d3.select(this).transition().duration(150).attr("d",arc);
+      centerLabel.text(inr(totalAmt));
+      centerSub.text("Total Expenses");
+    });
+}
+
+function renderD3ExpenseBars(expenseData){
+  var container=document.getElementById("d3-expense-bars");
+  if(!container||typeof d3==="undefined")return;
+  container.innerHTML="";
+  if(!expenseData||!expenseData.length){
+    container.innerHTML='<div class="empty">No expenses recorded in this period.</div>';
+    return;
+  }
+  var rect=container.getBoundingClientRect();
+  var width=Math.max(300,rect.width||520);
+  var barHeight=36;
+  var height=expenseData.length*barHeight+30;
+  var margin={top:10,right:75,bottom:20,left:110};
+
+  var colors=["#ef4444","#f59e0b","#3b82f6","#10b981","#8b5cf6","#ec4899","#6366f1","#14b8a6","#64748b"];
+  var colorScale=d3.scaleOrdinal().range(colors);
+  var maxVal=d3.max(expenseData,function(d){return d.amount})||100;
+
+  var svg=d3.select(container).append("svg")
+    .attr("viewBox","0 0 "+width+" "+height).attr("width","100%").attr("height",height);
+
+  var y=d3.scaleBand().domain(expenseData.map(function(d){return d.category})).range([margin.top,height-margin.bottom]).padding(0.28);
+  var x=d3.scaleLinear().domain([0,maxVal]).range([margin.left,width-margin.right]);
+
+  svg.selectAll(".cat-label").data(expenseData).enter().append("text")
+    .attr("x",margin.left-8).attr("y",function(d){return y(d.category)+y.bandwidth()/2+4})
+    .attr("text-anchor","end").attr("fill","var(--ink)").style("font-size","12px").style("font-weight","600")
+    .text(function(d){return d.category});
+
+  svg.selectAll(".bar-bg").data(expenseData).enter().append("rect")
+    .attr("x",margin.left).attr("y",function(d){return y(d.category)})
+    .attr("width",width-margin.left-margin.right).attr("height",y.bandwidth())
+    .attr("rx",4).attr("fill","var(--line)").attr("opacity",0.4);
+
+  svg.selectAll(".bar").data(expenseData).enter().append("rect")
+    .attr("x",margin.left).attr("y",function(d){return y(d.category)})
+    .attr("width",function(d){return Math.max(4,x(d.amount)-margin.left)})
+    .attr("height",y.bandwidth()).attr("rx",4).attr("fill",function(d,i){return colorScale(i)});
+
+  svg.selectAll(".val-label").data(expenseData).enter().append("text")
+    .attr("x",function(d){return x(d.amount)+6}).attr("y",function(d){return y(d.category)+y.bandwidth()/2+4})
+    .attr("fill","var(--ink)").style("font-size","12px").style("font-weight","700")
+    .text(function(d){return inr(d.amount)+" ("+d.percentage+"%)"});
+}
+
+window.addEventListener("resize",function(){
+  if(tab==="analytics"&&AN_DATA&&!AN_LOADING){renderAnCharts()}
+});
 var dl=null;try{if(window.claude&&claude.use)claude.use("downloads").then(function(d){dl=d}).catch(function(){})}catch(e){}
 function renderBak(){tab="setup";SU="bak";renderSetup()}
 function doBackup(){if(!dl)return showBk();
@@ -376,6 +1410,326 @@ function doRestore(){var o;try{o=JSON.parse(document.getElementById("rt").value)
 if(!o||!Array.isArray(o.c)||!Array.isArray(o.inv))return er("This backup is missing customer or invoice data.");
 ask("Replace all current data with this backup?",function(){S=o;S.items=S.items||[];S.sup=S.sup||[];S.bk=S.bk||[];S.ob=S.ob||{Cash:0,Bank:0,UPI:0};S.biz=S.biz||{name:"",addr:"",gst:""};save();SRV?pullDuty(render):render()})}
 function localStart(){S=load();S.inv=S.inv||[];S.bk=S.bk||[];S.ob=S.ob||{Cash:20000,Bank:100000,UPI:0};S.sup=S.sup||[{id:1,name:"Oil company depot",kind:"Oil company",phone:"",e:[{d:dago(8),t:"pay",n:"Bank transfer",a:500000},{d:dago(4),t:"bill",n:"MS and HSD tanker",a:320000}]},{id:2,name:"Lube dealer",kind:"Dealer",phone:"",e:[{d:dago(6),t:"bill",n:"Oil and coolant stock",a:18000}]}];S.items=S.items||[{id:1,name:"Engine oil 1 L",unit:"piece",sell:520,buy:430,stock:24,low:6},{id:2,name:"Coolant 1 L",unit:"piece",sell:260,buy:200,stock:5,low:6},{id:3,name:"Gear oil 500 ml",unit:"piece",sell:310,buy:250,stock:12,low:4}];S.biz=S.biz||{name:"",addr:"",gst:""};render()}
+
+// ---- AI Forensic Audit Feature
+var AUDIT_DATA=null, AUDIT_LOADING=false, AUDIT_RANGE="30", AUDIT_FROM="", AUDIT_TO="";
+function getAuditFrom(){
+  if(AUDIT_RANGE==="7")return dAgo(7);
+  if(AUDIT_RANGE==="30")return dAgo(30);
+  if(AUDIT_RANGE==="90")return dAgo(90);
+  if(AUDIT_RANGE==="all")return "";
+  if(AUDIT_RANGE==="custom")return AUDIT_FROM;
+  return dAgo(30);
+}
+function getAuditTo(){
+  if(AUDIT_RANGE==="all")return "";
+  if(AUDIT_RANGE==="custom")return AUDIT_TO;
+  return today();
+}
+function setAuditRange(r){
+  AUDIT_RANGE=r;
+  if(r!=="custom"){AUDIT_FROM="";AUDIT_TO="";}
+  loadAudit(true);
+}
+function applyCustomAuditRange(){
+  var fi=document.getElementById("auditFromInput"), ti=document.getElementById("auditToInput");
+  AUDIT_FROM=fi?fi.value:""; AUDIT_TO=ti?ti.value:"";
+  loadAudit(true);
+}
+function loadAudit(force){
+  if(AUDIT_DATA&&!force){renderAudit();return}
+  AUDIT_LOADING=true;renderAudit();
+  var b={from:getAuditFrom(),to:getAuditTo()};
+  api("POST","/api/ai-audit",b).then(function(res){
+    AUDIT_DATA=res;AUDIT_LOADING=false;
+    if(tab==="audit")renderAudit();
+  }).catch(function(err){
+    AUDIT_LOADING=false;
+    toast((err&&err.error)||"Could not generate AI audit.");
+    if(tab==="audit")renderAudit();
+  });
+}
+function renderAudit(){
+  tab="audit";
+  var h=nav();
+  h+='<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:10px">';
+  h+='<div><h1 style="font-size:18px;font-weight:800;color:var(--ink);margin:0">AI Forensic Audit</h1><div class="sub">Automated audit of shift settlements, credit risks & inventory</div></div>';
+  h+='<div class="btns noprint" style="margin:0;display:flex;gap:6px">';
+  h+='<button style="padding:6px 12px;font-size:13px;display:inline-flex;align-items:center;gap:5px" onclick="loadAudit(true)"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>Run Audit</button>';
+  if(AUDIT_DATA&&AUDIT_DATA.audit){
+    h+='<button class="ghost" style="padding:6px 12px;font-size:13px;display:inline-flex;align-items:center;gap:5px" onclick="exportAuditPDF()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>Export PDF</button>';
+    h+='<button class="ghost" style="padding:6px 12px;font-size:13px;display:inline-flex;align-items:center;gap:5px" onclick="window.print()"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>Print</button>';
+  }
+  h+='</div>';
+  h+='</div>';
+
+  var ranges=[["7","Last 7 Days"],["30","Last 30 Days"],["90","Last 90 Days"],["all","All Records"],["custom","Custom"]];
+  h+='<div class="noprint" style="display:flex;gap:6px;overflow-x:auto;padding-bottom:4px;margin-bottom:8px">';
+  ranges.forEach(function(r){
+    var act=AUDIT_RANGE===r[0];
+    h+='<button style="padding:6px 12px;font-size:13px;white-space:nowrap" class="'+(act?'':'ghost')+'" onclick="setAuditRange(\''+r[0]+'\')">'+r[1]+'</button>';
+  });
+  h+='</div>';
+
+  if(AUDIT_RANGE==="custom"){
+    h+='<div class="row noprint" style="margin-bottom:12px;background:var(--card);padding:10px;border:1px solid var(--line);border-radius:8px">';
+    h+='<label style="margin:0">From<input id="auditFromInput" type="date" value="'+(AUDIT_FROM||dAgo(30))+'"></label>';
+    h+='<label style="margin:0">To<input id="auditToInput" type="date" value="'+(AUDIT_TO||today())+'"></label>';
+    h+='<button style="align-self:flex-end;margin-bottom:2px" onclick="applyCustomAuditRange()">Audit Range</button>';
+    h+='</div>';
+  }
+
+  if(AUDIT_LOADING){
+    h+='<div class="empty" style="padding:48px 16px"><div style="display:inline-block;width:28px;height:28px;border:3px solid var(--line);border-top-color:var(--ok);border-radius:50%;animation:spin .8s linear infinite;margin-bottom:12px"></div><br/><b style="color:var(--ink);font-size:16px">AI Auditor is inspecting station records...</b><div class="sub" style="margin-top:6px">Analyzing shift handovers, shortage patterns, credit limit breaches, and stock balance</div></div>';
+    document.getElementById("app").innerHTML=h;
+    return;
+  }
+
+  if(!AUDIT_DATA||!AUDIT_DATA.audit){
+    h+='<div class="cust" style="text-align:center;padding:36px 16px;cursor:default">';
+    h+='<div style="font-size:36px;margin-bottom:10px">🤖</div>';
+    h+='<b style="font-size:17px;color:var(--ink)">Run Station AI Audit</b>';
+    h+='<div class="sub" style="max-width:400px;margin:6px auto 16px">Scrutinize shift fuel sales against cash collections, inspect customer debtor limits, flag stockouts, and receive actionable risk mitigation recommendations.</div>';
+    h+='<button style="padding:10px 20px;font-size:15px" onclick="loadAudit(true)">Generate AI Forensic Audit</button>';
+    h+='</div>';
+    document.getElementById("app").innerHTML=h;
+    return;
+  }
+
+  var A=AUDIT_DATA.audit, M=AUDIT_DATA.metrics||{};
+  var score=A.score!=null?A.score:80;
+  var rating=A.rating||"Good";
+  var scoreColor=score>=85?'var(--ok)':score>=70?'var(--warn)':'var(--due)';
+  var scoreBg=score>=85?'rgba(11,122,95,0.08)':score>=70?'rgba(184,110,0,0.08)':'rgba(184,50,31,0.08)';
+
+  h+='<div class="print-only" style="display:none;margin-bottom:14px;border-bottom:2px solid #16262b;padding-bottom:8px">';
+  h+='<h2 style="margin:0;font-size:18px;color:#16262b">'+esc((S.biz&&S.biz.name)||"Petrol Pump Management")+'</h2>';
+  h+='<div style="font-size:11px;color:#555">FORENSIC AI AUDIT REPORT | Period: '+(getAuditFrom()||"Historical")+' to '+(getAuditTo()||today())+'</div>';
+  h+='</div>';
+
+  h+='<div style="background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:12px">';
+  h+='<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">';
+  h+='<div style="display:flex;align-items:center;gap:14px">';
+  h+='<div style="width:58px;height:58px;border-radius:50%;background:'+scoreBg+';border:3px solid '+scoreColor+';display:flex;flex-direction:column;align-items:center;justify-content:center;font-weight:800;color:'+scoreColor+';line-height:1">';
+  h+='<span style="font-size:20px">'+score+'</span><span style="font-size:9px;color:var(--mute)">/100</span></div>';
+  h+='<div><div style="display:flex;align-items:center;gap:6px">';
+  h+='<b style="font-size:17px;color:var(--ink)">'+esc(rating)+'</b>';
+  h+='<span style="font-size:11px;padding:2px 7px;border-radius:10px;background:'+scoreBg+';color:'+scoreColor+';font-weight:700">'+esc(A.modelUsed||"AI Audit")+'</span>';
+  h+='</div>';
+  h+='<div style="font-size:13px;font-weight:600;color:var(--ink);margin-top:2px">'+esc(A.headline||"")+'</div>';
+  h+='</div></div>';
+  h+='</div>';
+  if(A.summary){
+    h+='<div class="sub" style="margin-top:12px;line-height:1.5;padding-top:10px;border-top:1px solid var(--line);color:var(--ink)">'+esc(A.summary)+'</div>';
+  }
+  h+='</div>';
+
+  h+='<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px">';
+  h+='<div style="background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px">';
+  h+='<div class="sub" style="font-size:12px">Settlement Accuracy</div>';
+  h+='<div style="font-size:22px;font-weight:800;color:'+(M.reconciliationAccuracy>=98?'var(--ok)':'var(--warn)')+'">'+(M.reconciliationAccuracy!=null?M.reconciliationAccuracy:100)+'%</div>';
+  h+='<div class="sub" style="font-size:11px">'+(M.dutiesCount||0)+' shifts audited</div>';
+  h+='</div>';
+  h+='<div style="background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px">';
+  h+='<div class="sub" style="font-size:12px">Cash Handover Shortage</div>';
+  h+='<div style="font-size:22px;font-weight:800;color:'+(M.totalShortage>0?'var(--due)':'var(--ok)')+'">'+inr(M.totalShortage||0)+'</div>';
+  h+='<div class="sub" style="font-size:11px">'+(M.shortageDutyCount||0)+' shifts with shortage</div>';
+  h+='</div>';
+  h+='<div style="background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px">';
+  h+='<div class="sub" style="font-size:12px">Over-Limit Credit Debt</div>';
+  h+='<div style="font-size:22px;font-weight:800;color:'+(M.overLimitDebt>0?'var(--due)':'var(--ok)')+'">'+inr(M.overLimitDebt||0)+'</div>';
+  h+='<div class="sub" style="font-size:11px">'+(M.overLimitCount||0)+' customer accounts over limit</div>';
+  h+='</div>';
+  h+='<div style="background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px">';
+  h+='<div class="sub" style="font-size:12px">Low Stock Warnings</div>';
+  h+='<div style="font-size:22px;font-weight:800;color:'+(M.lowStockCount>0?'var(--warn)':'var(--ok)')+'">'+(M.lowStockCount||0)+' items</div>';
+  h+='<div class="sub" style="font-size:11px">'+(M.lowStockCount>0?'Needs reorder':'Stock adequate')+'</div>';
+  h+='</div>';
+  h+='</div>';
+
+  h+='<h1 style="font-size:16px;font-weight:800;color:var(--ink);margin:16px 0 8px">Identified Risk Factors ('+((A.risks||[]).length)+')</h1>';
+  if(!A.risks||!A.risks.length){
+    h+='<div class="cust" style="cursor:default;border-color:var(--ok)"><b style="color:var(--ok)">✓ No Critical Risk Factors Detected</b><div class="sub">Cash handovers, customer debtor ledgers, and inventory balances are healthy.</div></div>';
+  } else {
+    A.risks.forEach(function(r){
+      var isHigh=r.severity==="high", isMed=r.severity==="medium";
+      var badgeColor=isHigh?'#dc2626':isMed?'#d97706':'#4b5563';
+      var badgeBg=isHigh?'rgba(220,38,38,0.1)':isMed?'rgba(217,119,6,0.1)':'rgba(75,85,99,0.1)';
+      h+='<div class="cust" style="cursor:default;margin-top:8px;border-left:4px solid '+badgeColor+'">';
+      h+='<div style="display:flex;justify-content:space-between;align-items:center;gap:6px;margin-bottom:4px">';
+      h+='<span style="font-size:11px;font-weight:700;text-transform:uppercase;padding:2px 8px;border-radius:6px;background:'+badgeBg+';color:'+badgeColor+'">'+esc(r.severity)+' Risk · '+esc(r.category)+'</span>';
+      if(r.impact)h+='<span style="font-size:12px;font-weight:700;color:'+badgeColor+'">'+esc(r.impact)+'</span>';
+      h+='</div>';
+      h+='<b style="font-size:15px;color:var(--ink);display:block;margin-top:2px">'+esc(r.title)+'</b>';
+      h+='<div class="sub" style="margin-top:4px;line-height:1.4">'+esc(r.detail)+'</div>';
+      h+='</div>';
+    });
+  }
+
+  h+='<h1 style="font-size:16px;font-weight:800;color:var(--ink);margin:20px 0 8px">Actionable Recommendations ('+((A.recommendations||[]).length)+')</h1>';
+  if(!A.recommendations||!A.recommendations.length){
+    h+='<div class="empty">No corrective actions required at this time.</div>';
+  } else {
+    A.recommendations.forEach(function(rc,idx){
+      var isImm=rc.priority==="Immediate", isHi=rc.priority==="High";
+      var priColor=isImm?'#dc2626':isHi?'#d97706':'#0284c7';
+      h+='<div style="background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px;margin-top:8px">';
+      h+='<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px">';
+      h+='<span style="font-size:11px;font-weight:800;padding:2px 7px;border-radius:4px;background:'+priColor+';color:#fff">'+esc(rc.priority)+'</span>';
+      h+='<b style="font-size:14px;color:var(--ink)">Step '+(idx+1)+'</b>';
+      h+='</div>';
+      h+='<div style="font-size:13.5px;color:var(--ink);font-weight:600;margin-top:4px">'+esc(rc.action)+'</div>';
+      if(rc.expectedImpact){
+        h+='<div class="sub" style="margin-top:3px;color:var(--mute)"><b>Target Outcome:</b> '+esc(rc.expectedImpact)+'</div>';
+      }
+      h+='</div>';
+    });
+  }
+
+  if(A.strengths&&A.strengths.length){
+    h+='<h1 style="font-size:16px;font-weight:800;color:var(--ink);margin:20px 0 8px">Operational Strengths ('+A.strengths.length+')</h1>';
+    h+='<div style="background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px">';
+    A.strengths.forEach(function(s){
+      h+='<div style="display:flex;align-items:flex-start;gap:8px;margin-top:6px;font-size:13.5px;color:var(--ink)">';
+      h+='<span style="color:var(--ok);font-weight:800">✓</span><span>'+esc(s)+'</span></div>';
+    });
+    h+='</div>';
+  }
+
+  document.getElementById("app").innerHTML=h;
+}
+
+function exportAuditPDF(){
+  var jsPDF=(window.jspdf&&window.jspdf.jsPDF)||window.jsPDF;
+  if(!jsPDF||!AUDIT_DATA||!AUDIT_DATA.audit){window.print();return}
+  var A=AUDIT_DATA.audit, M=AUDIT_DATA.metrics||{};
+  var doc=new jsPDF({orientation:"portrait",unit:"pt",format:"a4"});
+  var bizName=(S.biz&&S.biz.name)||"Petrol Pump Management";
+  var bizGst=(S.biz&&S.biz.gst)?("GSTIN: "+S.biz.gst):"";
+
+  doc.setFillColor(22,38,43);
+  doc.rect(0,0,595.28,62,"F");
+  doc.setTextColor(255,255,255);
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(15);
+  doc.text(bizName.toUpperCase(),30,26);
+  doc.setFont("helvetica","normal");
+  doc.setFontSize(9.5);
+  doc.setTextColor(205,225,228);
+  doc.text("FORENSIC AI OPERATIONAL & FINANCIAL AUDIT REPORT",30,42);
+  doc.setFontSize(8);
+  doc.setTextColor(170,195,200);
+  var metaParts=["Period: "+(getAuditFrom()||"Historical")+" to "+(getAuditTo()||today())];
+  if(bizGst)metaParts.push(bizGst);
+  metaParts.push("Audit Score: "+(A.score!=null?A.score:80)+"/100 ("+(A.rating||"Good")+")");
+  doc.text(metaParts.join("   |   "),30,54);
+
+  var runTable=function(opts){
+    if(typeof doc.autoTable==="function"){doc.autoTable(opts)}
+    else if(window.jspdf&&typeof window.jspdf.autoTable==="function"){window.jspdf.autoTable(doc,opts)}
+  };
+
+  var curY=78;
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(10.5);
+  doc.setTextColor(22,38,43);
+  doc.text("1. Executive Summary & Health Rating",30,curY);
+
+  var sumBody=[
+    ["Audit Health Score",(A.score!=null?A.score:80)+" / 100 ("+(A.rating||"Good")+")"],
+    ["Diagnosis Headline",A.headline||"Operational controls active"],
+    ["Settlement Accuracy",(M.reconciliationAccuracy!=null?M.reconciliationAccuracy:100)+"%"],
+    ["Total Cash Handover Shortages","INR "+(M.totalShortage||0).toLocaleString("en-IN")],
+    ["Over-Limit Customer Debt","INR "+(M.overLimitDebt||0).toLocaleString("en-IN")],
+    ["Low Inventory Items",String(M.lowStockCount||0)+" items requiring purchase"]
+  ];
+
+  runTable({
+    startY:curY+5,margin:{left:30,right:30},
+    head:[["Metric","Audit Value"]],body:sumBody,theme:"striped",
+    headStyles:{fillColor:[22,38,43],textColor:255,fontSize:8.5,fontStyle:"bold"},
+    styles:{fontSize:8,cellPadding:4},
+    columnStyles:{0:{cellWidth:160,fontStyle:"bold"},1:{cellWidth:"auto"}}
+  });
+
+  curY=(doc.lastAutoTable?doc.lastAutoTable.finalY:curY+120)+14;
+
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(10.5);
+  doc.setTextColor(22,38,43);
+  doc.text("2. Forensic Risk Factors & Vulnerabilities",30,curY);
+
+  var riskBody=[];
+  if(A.risks&&A.risks.length){
+    A.risks.forEach(function(r){
+      riskBody.push([r.severity.toUpperCase(),r.category,r.title+": "+r.detail,r.impact||"—"]);
+    });
+  }else{
+    riskBody.push(["LOW","General","No critical risk vulnerabilities identified in current dataset.","All normal"]);
+  }
+
+  runTable({
+    startY:curY+5,margin:{left:30,right:30},
+    head:[["Severity","Category","Finding & Detail","Impact"]],body:riskBody,theme:"striped",
+    headStyles:{fillColor:[50,75,82],textColor:255,fontSize:8.5,fontStyle:"bold"},
+    styles:{fontSize:8,cellPadding:4},
+    columnStyles:{
+      0:{cellWidth:55,halign:"center",fontStyle:"bold"},
+      1:{cellWidth:85},
+      2:{cellWidth:"auto"},
+      3:{cellWidth:95,halign:"right",fontStyle:"bold"}
+    },
+    didParseCell:function(data){
+      if(data.column.index===0){
+        if(data.cell.text[0]==="HIGH")data.cell.styles.textColor=[184,50,31];
+        else if(data.cell.text[0]==="MEDIUM")data.cell.styles.textColor=[184,110,0];
+        else data.cell.styles.textColor=[11,122,95];
+      }
+    }
+  });
+
+  curY=(doc.lastAutoTable?doc.lastAutoTable.finalY:curY+120)+14;
+  if(curY>600){doc.addPage();curY=35}
+
+  doc.setFont("helvetica","bold");
+  doc.setFontSize(10.5);
+  doc.setTextColor(22,38,43);
+  doc.text("3. Actionable Mitigation Plan",30,curY);
+
+  var recBody=[];
+  if(A.recommendations&&A.recommendations.length){
+    A.recommendations.forEach(function(rc){
+      recBody.push([rc.priority.toUpperCase(),rc.action,rc.expectedImpact||"—"]);
+    });
+  }else{
+    recBody.push(["NORMAL","Continue monitoring shift collections and dip levels.","Stable operations"]);
+  }
+
+  runTable({
+    startY:curY+5,margin:{left:30,right:30},
+    head:[["Priority","Action Required","Target Outcome"]],body:recBody,theme:"striped",
+    headStyles:{fillColor:[75,90,95],textColor:255,fontSize:8.5,fontStyle:"bold"},
+    styles:{fontSize:8,cellPadding:4},
+    columnStyles:{
+      0:{cellWidth:65,halign:"center",fontStyle:"bold"},
+      1:{cellWidth:"auto"},
+      2:{cellWidth:130}
+    }
+  });
+
+  var totalPages=doc.internal.getNumberOfPages();
+  for(var p=1;p<=totalPages;p++){
+    doc.setPage(p);
+    doc.setFont("helvetica","normal");
+    doc.setFontSize(8);
+    doc.setTextColor(150,160,165);
+    doc.text("Petrol Pump Management System  •  Confidential Forensic AI Audit",30,822);
+    doc.text("Page "+p+" of "+totalPages,565,822,{align:"right"});
+  }
+
+  doc.save("AI-Audit-Report-"+(getAuditFrom()||"start")+"-to-"+(getAuditTo()||today())+".pdf");
+  toast("AI Audit report exported to PDF successfully.");
+}
 var ME=null,SRV=false,VER=0,saveT=null,CL=[],MY=[],PEND=[];
 var TOKEN=localStorage.getItem("petrol-token")||"";
 function api(m,u,b){var headers={"Content-Type":"application/json","X-App":"1"};if(TOKEN)headers["Authorization"]="Bearer "+TOKEN;return fetch(u,{method:m,headers:headers,body:b?JSON.stringify(b):undefined,credentials:"include"}).then(function(r){return r.json().then(function(j){if(!r.ok){j.status=r.status;throw j}return j},function(){if(!r.ok)throw{status:r.status};return{}})})}
@@ -400,7 +1754,7 @@ function wnav(){var T=[["wduty","Duty","loadW"],["wdip","Tank dip","loadDip"],["
 var CASH_DENOMS=[500,200,100,50,20,10];
 var autoSaveTimer=null,autoSavePending=false,autoSaveInFlight=false,autoSaveLastText="",autoSaveLastColor="";
 function setAutoSaveStatus(txt,color,spin){autoSaveLastText=txt;autoSaveLastColor=color||"var(--ok)";var el=document.getElementById("autoSaveStatus");if(!el)return;if(!txt){el.style.display="none";return}el.style.display="inline-flex";el.style.color=color||"var(--ok)";if(spin){el.innerHTML='<span style="display:inline-block;width:10px;height:10px;border:2px solid currentColor;border-top-color:transparent;border-radius:50%;margin-right:6px;animation:spin .8s linear infinite"></span> '+esc(txt)}else{el.textContent=txt}}
-function autoSaveDuty(immediate){if(!DF||!DF.id)return;autoSavePending=true;if(autoSaveTimer){clearTimeout(autoSaveTimer);autoSaveTimer=null}try{localStorage.setItem("petrol_duty_draft_"+DF.id,JSON.stringify(dpay()))}catch(e){}var doSave=function(){if(!DF||!DF.id||autoSaveInFlight)return;autoSavePending=false;autoSaveInFlight=true;setAutoSaveStatus("Autosaving...","var(--mute)",true);var url=DF.mode=="worker"?("/api/duty/"+DF.id):("/api/duties/"+DF.id+"?strict=0");api("PUT",url,dpay()).then(function(){autoSaveInFlight=false;var timeStr=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});setAutoSaveStatus("Autosaved \u2713 "+timeStr,"var(--ok)",false);if(autoSavePending)autoSaveDuty(false)}).catch(function(e){autoSaveInFlight=false;setAutoSaveStatus(e&&e.error?e.error:"Saved locally (offline)","var(--warn)",false)})};if(immediate){doSave()}else{setAutoSaveStatus("Autosaving...","var(--mute)",true);autoSaveTimer=setTimeout(doSave,600)}}
+function autoSaveDuty(immediate){if(!DF||!DF.id)return;if(ME&&ME.role=="manager"&&DF.mode=="review")return;autoSavePending=true;if(autoSaveTimer){clearTimeout(autoSaveTimer);autoSaveTimer=null}try{localStorage.setItem("petrol_duty_draft_"+DF.id,JSON.stringify(dpay()))}catch(e){}var doSave=function(){if(!DF||!DF.id||autoSaveInFlight)return;autoSavePending=false;autoSaveInFlight=true;setAutoSaveStatus("Autosaving...","var(--mute)",true);var url=DF.mode=="worker"?("/api/duty/"+DF.id):("/api/duties/"+DF.id+"?strict=0");api("PUT",url,dpay()).then(function(){autoSaveInFlight=false;var timeStr=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});setAutoSaveStatus("Autosaved \u2713 "+timeStr,"var(--ok)",false);if(autoSavePending)autoSaveDuty(false)}).catch(function(e){autoSaveInFlight=false;setAutoSaveStatus(e&&e.error?e.error:"Saved locally (offline)","var(--warn)",false)})};if(immediate){doSave()}else{setAutoSaveStatus("Autosaving...","var(--mute)",true);autoSaveTimer=setTimeout(doSave,600)}}
 window.addEventListener("beforeunload",function(){if(DF&&DF.id&&autoSavePending)autoSaveDuty(true)});
 document.addEventListener("visibilitychange",function(){if(document.hidden&&DF&&DF.id&&autoSavePending)autoSaveDuty(true)});
 function cashModal(){if(!DF)return;DF.cash_denoms=DF.cash_denoms||{};var curCash=fnum(DF.pay['cash']),h='<h2>Cash counter</h2><div class="sub">Count notes or enter total cash collected.</div><label>Total cash amount (\u20b9)<input id="cash_direct_tot" inputmode="decimal" placeholder="0" value="'+esc(DF.pay['cash']||"")+'" oninput="onDirectCash(this.value)"></label><div style="margin-top:12px;font-weight:600;font-size:13px;color:var(--mute)">Or count by denomination:</div><div style="display:grid;grid-template-columns:1fr;gap:6px;margin:8px 0;max-height:220px;overflow-y:auto;padding-right:2px">';CASH_DENOMS.forEach(function(d){var cnt=DF.cash_denoms[d]||"",sub=cnt?(fnum(cnt)*d):0;h+='<div class="row" style="background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 10px;margin:0"><span style="font-weight:700;width:60px">\u20b9'+d+' \u00d7</span><input id="cn_'+d+'" type="number" inputmode="numeric" min="0" placeholder="0" value="'+esc(cnt)+'" oninput="calcCashDenom()" style="margin:0;padding:6px 8px;width:75px;text-align:right"><span id="cs_'+d+'" style="text-align:right;flex:1;font-weight:600;color:var(--mute)">= '+inr(sub)+'</span></div>'});var coins=DF.cash_denoms["coins"]||"",coinSub=coins?fnum(coins):0;h+='<div class="row" style="background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 10px;margin:0"><span style="font-weight:700;width:60px">Coins</span><input id="cn_coins" type="number" inputmode="decimal" min="0" placeholder="0" value="'+esc(coins)+'" oninput="calcCashDenom()" style="margin:0;padding:6px 8px;width:75px;text-align:right"><span id="cs_coins" style="text-align:right;flex:1;font-weight:600;color:var(--mute)">= '+inr(coinSub)+'</span></div></div><div class="row" style="background:var(--bg);border:2px solid var(--ok);border-radius:8px;padding:10px 12px;margin:8px 0"><span style="font-weight:800;font-size:16px">Calculated Total</span><span id="cashCounterTotal" style="text-align:right;font-weight:800;font-size:20px;color:var(--ok)">'+inr(curCash)+'</span></div><div class="row" style="margin-top:14px"><button class="ghost" onclick="close()">Cancel</button><button onclick="applyCashCounter()">Save Cash</button></div>';openM(h);setTimeout(function(){var d=document.getElementById("cash_direct_tot");if(d&&!d.value)d.focus()},50)}
@@ -947,9 +2301,12 @@ var rTot=document.getElementById("recoveryTotal");if(rTot&&document.activeElemen
 var eTot=document.getElementById("expTotal");if(eTot&&document.activeElement!==eTot){eTot.value=X?X:""}
 var cTot=document.getElementById("creditTotal");if(cTot&&document.activeElement!==cTot){cTot.value=DF.credit?DF.credit:""}
 e.innerHTML=R2("Fuel sold",L.toFixed(2)+" L")+R2("Fuel sales",m2(A))+R2("Lube and shop sales",m2(P))+(R>0?R2("Credit recovery collections","+"+m2(R)):"")+R2("Less credit sales",m2(DF.credit))+R2("Less expense",m2(X))+R2("Expected collection",m2(ex))+R2("Collected",m2(C))+'<div class="amt" style="color:'+(Math.abs(df)<1?'var(--ok)':'var(--due)')+'">'+R2(df<=-1?"Short":df>=1?"Excess":"Tally",m2(Math.abs(df)))+'</div>'}
+function onNozInput(el,idx,field){var v=el.value;if(v.indexOf('.')!==-1){var parts=v.split('.');if(parts[1].length>2){v=parts[0]+'.'+parts[1].slice(0,2);el.value=v}}if(DF&&DF.lines&&DF.lines[idx]){DF.lines[idx][field]=v}dsum();autoSaveDuty()}
+function onNozChange(el,idx,field){var v=el.value.trim();if(v!==""&&!isNaN(parseFloat(v))){var rounded=(Math.round(parseFloat(v)*100)/100).toFixed(2);el.value=rounded;v=rounded}if(DF&&DF.lines&&DF.lines[idx]){DF.lines[idx][field]=v}dsum();autoSaveDuty(true)}
+function finNoz(label,idx,field,val,ed){var dispVal=(val===""||val==null)?"":(typeof val==="number"?val.toFixed(2):esc(val));return '<label>'+label+'<input '+(ed?'':'disabled ')+'type="number" step="0.01" inputmode="decimal" placeholder="0.00" value="'+esc(dispVal)+'" oninput="onNozInput(this,'+idx+',\''+field+'\')" onchange="onNozChange(this,'+idx+',\''+field+'\')"></label>'}
 function fin(label,path,val,ed){return '<label>'+label+'<input '+(ed?'':'disabled ')+'inputmode="decimal" value="'+esc(val)+'" oninput="'+path+'=this.value;dsum();autoSaveDuty()" onchange="'+path+'=this.value;dsum();autoSaveDuty(true)"></label>'}
-function formHtml(){var wk=DF.mode=="worker",h='';
-DF.lines.forEach(function(l,i){var P='DF.lines['+i+'].';h+='<div class="cust" style="cursor:default"><b>'+esc(l.name)+'</b> <span class="sub">'+esc(l.fuel)+'</span><div class="row">'+fin("Opening",P+'opening',l.opening,!wk)+fin("Closing",P+'closing',l.closing,1)+'</div><div class="row">'+fin("Testing (L)",P+'testing',l.testing,1)+fin("Rate (\u20b9/L)",P+'rate',l.rate,!wk)+'</div><div class="sub" id="dl'+i+'" style="margin-top:6px"></div></div>'});
+function formHtml(){var wk=DF.mode=="worker",mgrReview=(ME&&ME.role=="manager"&&DF.mode=="review"),h='';
+DF.lines.forEach(function(l,i){var P='DF.lines['+i+'].';var canOp=(!wk&&!mgrReview),canCl=(wk||(!mgrReview&&ME&&ME.role=="owner")),canTs=(wk||(!mgrReview&&ME&&ME.role=="owner")),canRt=(!wk&&!mgrReview);h+='<div class="cust" style="cursor:default"><b>'+esc(l.name)+'</b> <span class="sub">'+esc(l.fuel)+'</span><div class="row">'+finNoz("Opening",i,'opening',l.opening,canOp)+finNoz("Closing",i,'closing',l.closing,canCl)+'</div><div class="row">'+finNoz("Testing (L)",i,'testing',l.testing,canTs)+fin("Rate (\u20b9/L)",P+'rate',l.rate,canRt)+'</div><div class="sub" id="dl'+i+'" style="margin-top:6px"></div></div>'});
 h+=sect("Lubes and shop & Credit recovery");
 var totalLube=0;
 (DF.items||[]).forEach(function(it){
@@ -960,8 +2317,8 @@ totalLube=Math.round(totalLube*100)/100;
 var totalRec=(DF.recoveries&&DF.recoveries.length)?DF.recoveries.reduce(function(a,x){return a+fnum(x.a)},0):fnum(DF.recovery);
 totalRec=Math.round(totalRec*100)/100;
 h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px">';
-h+='<div class="money-box" onclick="lubeModal()" style="cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent"><label style="cursor:pointer;margin-top:0">Lubes & shop<input id="lubeTotal" readonly inputmode="decimal" placeholder="0" value="'+(totalLube?totalLube:'')+'" style="cursor:pointer;pointer-events:none"></label></div>';
-h+='<div class="money-box" onclick="recoveryModal()" style="cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent"><label style="cursor:pointer;margin-top:0">Credit Recovery Collections<input id="recoveryTotal" readonly inputmode="decimal" placeholder="0" value="'+(totalRec?totalRec:'')+'" style="cursor:pointer;pointer-events:none"></label></div>';
+h+='<div class="money-box" '+(mgrReview?'style="cursor:default"':'onclick="lubeModal()" style="cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent"')+'><label style="cursor:'+(mgrReview?'default':'pointer')+';margin-top:0">Lubes & shop<input id="lubeTotal" readonly inputmode="decimal" placeholder="0" value="'+(totalLube?totalLube:'')+'" style="cursor:'+(mgrReview?'default':'pointer')+';pointer-events:none"></label></div>';
+h+='<div class="money-box" '+(mgrReview?'style="cursor:default"':'onclick="recoveryModal()" style="cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent"')+'><label style="cursor:'+(mgrReview?'default':'pointer')+';margin-top:0">Credit Recovery Collections<input id="recoveryTotal" readonly inputmode="decimal" placeholder="0" value="'+(totalRec?totalRec:'')+'" style="cursor:'+(mgrReview?'default':'pointer')+';pointer-events:none"></label></div>';
 h+='</div>';
 if(DF.items&&DF.items.length){
   var validItems=DF.items.filter(function(it){return it.item_id&&fnum(it.qty)>0});
@@ -971,7 +2328,7 @@ if(DF.items&&DF.items.length){
       var s=(DF.stock||[]).filter(function(x){return String(x.id)===String(it.item_id)})[0];
       var name=s?s.name:"Item",unit=s?s.unit:"piece",price=s?s.sell:0,qty=fnum(it.qty),amt=Math.round(qty*price*100)/100;
       if(!qty||!it.item_id)return;
-      h+='<div class="cust" style="cursor:pointer;margin-top:6px;padding:9px 12px" onclick="lubeModal('+(s?s.id:0)+')"><div class="row"><b>'+esc(name)+'</b><span class="amt" style="flex:none">'+inr(amt)+'</span></div><div class="row" style="margin-top:2px"><span class="sub" style="flex:1">'+qty+' '+esc(unit)+' \u00d7 '+m2(price)+'</span><button class="ghost" style="flex:none;padding:3px 8px;font-size:12px" onclick="event.stopPropagation();DF.items.splice('+i+',1);renderDF();autoSaveDuty(true)">Remove</button></div></div>';
+      h+='<div class="cust" style="cursor:'+(mgrReview?'default':'pointer')+';margin-top:6px;padding:9px 12px" '+(mgrReview?'':'onclick="lubeModal('+(s?s.id:0)+')"')+'><div class="row"><b>'+esc(name)+'</b><span class="amt" style="flex:none">'+inr(amt)+'</span></div><div class="row" style="margin-top:2px"><span class="sub" style="flex:1">'+qty+' '+esc(unit)+' \u00d7 '+m2(price)+'</span>'+(mgrReview?'':'<button class="ghost" style="flex:none;padding:3px 8px;font-size:12px" onclick="event.stopPropagation();DF.items.splice('+i+',1);renderDF();autoSaveDuty(true)">Remove</button>')+'</div></div>';
     });
     h+='</div>';
   }
@@ -979,7 +2336,7 @@ if(DF.items&&DF.items.length){
 if(DF.recoveries&&DF.recoveries.length){
   h+='<div style="margin-top:8px">';
   DF.recoveries.forEach(function(x,i){
-    h+='<div class="cust" style="cursor:pointer;margin-top:6px;padding:9px 12px" onclick="recoveryModal('+x.id+')"><div class="row"><b>'+esc(x.cname||"Customer")+'</b><span class="amt pay" style="flex:none">+'+inr(fnum(x.a))+'</span></div><div class="row" style="margin-top:2px"><span class="sub" style="flex:1">'+esc(x.mode||"Cash")+(x.note?' \u00b7 '+esc(x.note):'')+'</span><button class="ghost" style="flex:none;padding:3px 8px;font-size:12px" onclick="event.stopPropagation();removeRecovery('+x.id+');autoSaveDuty(true)">Remove</button></div></div>';
+    h+='<div class="cust" style="cursor:'+(mgrReview?'default':'pointer')+';margin-top:6px;padding:9px 12px" '+(mgrReview?'':'onclick="recoveryModal('+x.id+')"')+'><div class="row"><b>'+esc(x.cname||"Customer")+'</b><span class="amt pay" style="flex:none">+'+inr(fnum(x.a))+'</span></div><div class="row" style="margin-top:2px"><span class="sub" style="flex:1">'+esc(x.mode||"Cash")+(x.note?' \u00b7 '+esc(x.note):'')+'</span>'+(mgrReview?'':'<button class="ghost" style="flex:none;padding:3px 8px;font-size:12px" onclick="event.stopPropagation();removeRecovery('+x.id+');autoSaveDuty(true)">Remove</button>')+'</div></div>';
   });
   h+='</div>';
 }
@@ -987,33 +2344,58 @@ h+=sect("Money collected");
 var totalExp=DF.exps.reduce(function(a,x){return a+fnum(x.amount)},0);
 var totalCredit=(DF.credits&&DF.credits.length)?DF.credits.reduce(function(a,x){return a+(x.status!='rejected'?fnum(x.a):0)},0):fnum(DF.credit);
 h+='<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px">';
-DF.modes.forEach(function(m){var isCash=m.key=="cash",fn=isCash?"cashModal()":"modeModal('"+m.key+"','"+esc(m.name)+"')";h+='<div class="money-box" onclick="'+fn+'" style="cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent"><label style="cursor:pointer;margin-top:0">'+esc(m.name)+'<input readonly inputmode="decimal" placeholder="0" value="'+esc(DF.pay[m.key]||"")+'" style="cursor:pointer;pointer-events:none"></label></div>'});
-h+='<div class="money-box" onclick="expModal()" style="cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent"><label style="cursor:pointer;margin-top:0">Expense<input id="expTotal" readonly inputmode="decimal" placeholder="0" value="'+(totalExp?totalExp:'')+'" style="cursor:pointer;pointer-events:none"></label></div>';
-h+='<div class="money-box" onclick="creditModal()" style="cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent"><label style="cursor:pointer;margin-top:0">Credit sale<input id="creditTotal" readonly inputmode="decimal" placeholder="0" value="'+(totalCredit?totalCredit:'')+'" style="cursor:pointer;pointer-events:none"></label></div>';
+DF.modes.forEach(function(m){var isCash=m.key=="cash",fn=isCash?"cashModal()":"modeModal('"+m.key+"','"+esc(m.name)+"')";h+='<div class="money-box" '+(mgrReview?'style="cursor:default"':'onclick="'+fn+'" style="cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent"')+'><label style="cursor:'+(mgrReview?'default':'pointer')+';margin-top:0">'+esc(m.name)+'<input readonly inputmode="decimal" placeholder="0" value="'+esc(DF.pay[m.key]||"")+'" style="cursor:'+(mgrReview?'default':'pointer')+';pointer-events:none"></label></div>'});
+h+='<div class="money-box" '+(mgrReview?'style="cursor:default"':'onclick="expModal()" style="cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent"')+'><label style="cursor:'+(mgrReview?'default':'pointer')+';margin-top:0">Expense<input id="expTotal" readonly inputmode="decimal" placeholder="0" value="'+(totalExp?totalExp:'')+'" style="cursor:'+(mgrReview?'default':'pointer')+';pointer-events:none"></label></div>';
+h+='<div class="money-box" '+(mgrReview?'style="cursor:default"':'onclick="creditModal()" style="cursor:pointer;user-select:none;-webkit-tap-highlight-color:transparent"')+'><label style="cursor:'+(mgrReview?'default':'pointer')+';margin-top:0">Credit sale<input id="creditTotal" readonly inputmode="decimal" placeholder="0" value="'+(totalCredit?totalCredit:'')+'" style="cursor:'+(mgrReview?'default':'pointer')+';pointer-events:none"></label></div>';
 h+='</div>';
 if(DF.exps.length){
 h+='<div style="margin-top:8px">';
-DF.exps.forEach(function(x,i){h+='<div class="cust" style="cursor:pointer;margin-top:6px;padding:9px 12px" onclick="expModal()"><div class="row"><b>'+esc(x.cat)+'</b><span class="amt" style="flex:none">'+inr(fnum(x.amount))+'</span></div><div class="row" style="margin-top:2px"><span class="sub" style="flex:1">'+(x.note?esc(x.note):"No details")+'</span><button class="ghost" style="flex:none;padding:3px 8px;font-size:12px" onclick="event.stopPropagation();DF.exps.splice('+i+',1);renderDF();autoSaveDuty(true)">Remove</button></div></div>'});
+DF.exps.forEach(function(x,i){h+='<div class="cust" style="cursor:'+(mgrReview?'default':'pointer')+';margin-top:6px;padding:9px 12px" '+(mgrReview?'':'onclick="expModal()"')+'><div class="row"><b>'+esc(x.cat)+'</b><span class="amt" style="flex:none">'+inr(fnum(x.amount))+'</span></div><div class="row" style="margin-top:2px"><span class="sub" style="flex:1">'+(x.note?esc(x.note):"No details")+'</span>'+(mgrReview?'':'<button class="ghost" style="flex:none;padding:3px 8px;font-size:12px" onclick="event.stopPropagation();DF.exps.splice('+i+',1);renderDF();autoSaveDuty(true)">Remove</button>')+'</div></div>'});
 h+='</div>';
 }
 if(DF.credits&&DF.credits.length){
 h+='<div style="margin-top:8px">';
-DF.credits.forEach(function(x,i){h+='<div class="cust" style="cursor:pointer;margin-top:6px;padding:9px 12px" onclick="creditModal()"><div class="row"><b>'+esc(x.cname||"Customer")+'</b><span class="amt" style="flex:none">'+inr(fnum(x.a))+'</span></div><div class="row" style="margin-top:2px"><span class="sub" style="flex:1">'+esc(x.n||"")+(x.veh?' \u00b7 '+esc(x.veh):'')+(x.status=="pending"?' <span style="color:var(--warn)">(Waiting approval)</span>':'')+'</span><button class="ghost" style="flex:none;padding:3px 8px;font-size:12px" onclick="event.stopPropagation();removeCreditSale('+x.id+');autoSaveDuty(true)">Remove</button></div></div>'});
+DF.credits.forEach(function(x,i){h+='<div class="cust" style="cursor:'+(mgrReview?'default':'pointer')+';margin-top:6px;padding:9px 12px" '+(mgrReview?'':'onclick="creditModal()"')+'><div class="row"><b>'+esc(x.cname||"Customer")+'</b><span class="amt" style="flex:none">'+inr(fnum(x.a))+'</span></div><div class="row" style="margin-top:2px"><span class="sub" style="flex:1">'+esc(x.n||"")+(x.veh?' \u00b7 '+esc(x.veh):'')+(x.status=="pending"?' <span style="color:var(--warn)">(Waiting approval)</span>':'')+'</span>'+(mgrReview?'':'<button class="ghost" style="flex:none;padding:3px 8px;font-size:12px" onclick="event.stopPropagation();removeCreditSale('+x.id+');autoSaveDuty(true)">Remove</button>')+'</div></div>'});
 h+='</div>';
 }
-h+='<label>Note (optional)<input value="'+esc(DF.note)+'" oninput="DF.note=this.value;autoSaveDuty()" onchange="DF.note=this.value;autoSaveDuty(true)"></label><div class="cust" id="dsum" style="cursor:default;margin-top:12px"></div><div class="err" id="er"></div>';
+h+='<label>Note (optional)<input value="'+esc(DF.note)+'" '+(mgrReview?'disabled style="background:var(--bg);color:var(--ink)" ':'oninput="DF.note=this.value;autoSaveDuty()" onchange="DF.note=this.value;autoSaveDuty(true)"')+'>';
+h+='<div class="cust" id="dsum" style="cursor:default;margin-top:12px"></div><div class="err" id="er"></div>';
 setTimeout(dsum,0);return h}
 function fromDuty(d,ctx,mode){var pay={};Object.keys(d.pay||{}).forEach(function(k){pay[k]=d.pay[k]||""});
 var slips=(d.pay&&d.pay._slips)||d.slips||{},cash_denoms=(d.pay&&d.pay._denoms)||d.cash_denoms||{};
-var obj={id:d.id,mode:mode,modes:ctx.modes,cats:ctx.cats,stock:ctx.items,lines:d.lines.map(function(l){return{nozzle_id:l.nozzle_id,name:l.nozzle,fuel:l.fuel,opening:l.opening==null?"":l.opening,closing:l.closing==null?"":l.closing,testing:l.testing||0,rate:l.rate==null?"":l.rate}}),items:d.items.map(function(i){return{item_id:i.item_id,qty:i.qty}}),exps:d.expenses.map(function(e){return{cat:e.cat,note:e.note,amount:e.amount}}),pay:pay,note:d.note||"",credit:d.credit||0,credits:d.credit_sales||[],recovery:d.recovery||0,recoveries:d.credit_recoveries||[],meta:d,slips:slips,cash_denoms:cash_denoms};
+var obj={id:d.id,mode:mode,modes:ctx.modes,cats:ctx.cats,stock:ctx.items,lines:d.lines.map(function(l){var op=l.opening==null?"":(typeof l.opening==="number"?l.opening.toFixed(2):l.opening);var cl=l.closing==null?"":(typeof l.closing==="number"?l.closing.toFixed(2):l.closing);var ts=l.testing==null?0:(typeof l.testing==="number"?l.testing.toFixed(2):l.testing);return{nozzle_id:l.nozzle_id,name:l.nozzle,fuel:l.fuel,opening:op,closing:cl,testing:ts,rate:l.rate==null?"":l.rate}}),items:d.items.map(function(i){return{item_id:i.item_id,qty:i.qty}}),exps:d.expenses.map(function(e){return{cat:e.cat,note:e.note,amount:e.amount}}),pay:pay,note:d.note||"",credit:d.credit||0,credits:d.credit_sales||[],recovery:d.recovery||0,recoveries:d.credit_recoveries||[],meta:d,slips:slips,cash_denoms:cash_denoms};
 try{var raw=localStorage.getItem("petrol_duty_draft_"+d.id);if(raw){var dr=JSON.parse(raw);if(dr&&dr.lines){dr.lines.forEach(function(dl){var tg=obj.lines.find(function(l){return String(l.nozzle_id)===String(dl.nozzle_id)});if(tg&&tg.closing===""&&dl.closing!==""&&dl.closing!=null){tg.closing=dl.closing;if(dl.testing!=null)tg.testing=dl.testing}})}if(dr&&dr.note&&!obj.note)obj.note=dr.note}}catch(e){}
 return obj}
-function dpay(){var payCopy={};Object.keys(DF.pay||{}).forEach(function(k){if(k[0]!=="_")payCopy[k]=DF.pay[k]});if(DF.slips)payCopy._slips=DF.slips;if(DF.cash_denoms)payCopy._denoms=DF.cash_denoms;return{lines:DF.lines.map(function(l){return{nozzle_id:l.nozzle_id,opening:l.opening,closing:l.closing,testing:l.testing,rate:l.rate}}),items:DF.items,expenses:DF.exps,pay:payCopy,note:DF.note,recoveries:DF.recoveries||[]}}
+function dpay(){var payCopy={};Object.keys(DF.pay||{}).forEach(function(k){if(k[0]!=="_")payCopy[k]=DF.pay[k]});if(DF.slips)payCopy._slips=DF.slips;if(DF.cash_denoms)payCopy._denoms=DF.cash_denoms;return{lines:DF.lines.map(function(l){return{nozzle_id:l.nozzle_id,opening:l.opening===""||l.opening==null?null:Math.round(parseFloat(l.opening)*100)/100,closing:l.closing===""||l.closing==null?null:Math.round(parseFloat(l.closing)*100)/100,testing:l.testing===""||l.testing==null?0:Math.round(parseFloat(l.testing)*100)/100,rate:l.rate===""||l.rate==null?null:Math.round(parseFloat(l.rate)*100)/100}}),items:DF.items,expenses:DF.exps,pay:payCopy,note:DF.note,recoveries:DF.recoveries||[]}}
 function msg(m,good){var e=document.getElementById("er");if(e){e.style.color=good?"var(--ok)":"var(--due)";e.textContent=m}}
 function renderDF(){var m=DF.meta,h;
 var autoBadge='<span id="autoSaveStatus" style="font-size:12px;font-weight:600;display:'+(autoSaveLastText?'inline-flex':'none')+';align-items:center;padding:3px 8px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:'+(autoSaveLastColor||'var(--ok)')+'">'+(autoSaveLastText||'')+'</span>';
-if(DF.mode=="worker")h=ubar()+wnav()+'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap"><h1>'+esc(m.shift)+' duty \u00b7 '+m.d+'</h1>'+autoBadge+'</div><div class="sub">Opening readings and rates are set by your manager. Entries are autosaved automatically.</div>'+formHtml()+'<div class="row" style="margin-top:12px"><button class="ghost" onclick="wSave(0)">Save draft</button><button onclick="confirmDutyModal()">Submit duty</button></div>';
-else h=nav()+'<button class="ghost noprint" onclick="renderDutyTab()">Back to duty list</button><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:14px"><h1>'+esc(m.worker)+' \u00b7 '+esc(m.shift)+' \u00b7 '+m.d+'</h1>'+autoBadge+'</div><div class="sub">Check the figures, correct anything that is wrong, then close the duty. Entries are autosaved automatically.</div>'+formHtml()+'<div class="row" style="margin-top:12px"><button class="ghost" onclick="mSave(0)">Save changes</button><button onclick="mSave(1)">Close duty</button></div>';
+if(DF.mode=="worker"){
+  h=ubar()+wnav()+'<div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap"><h1>'+esc(m.shift)+' duty \u00b7 '+m.d+'</h1>'+autoBadge+'</div><div class="sub">Opening readings and rates are set by your manager. Entries are autosaved automatically.</div>';
+  var sbMatch=(DF.note||"").match(/\[Sent back by ([^:]+): (.*?)\]/);
+  if(sbMatch){
+    h+='<div class="cust" style="background:#fff3cd;border:1px solid #ffeeba;color:#856404;padding:12px 14px;margin-top:10px;margin-bottom:12px;border-radius:10px">'
+      +'<b style="color:#856404">⚠️ Duty sent back by '+esc(sbMatch[1])+' for changes:</b>'
+      +'<div style="margin-top:6px;font-size:15px;color:var(--ink);font-weight:600">'+esc(sbMatch[2])+'</div>'
+      +'<div class="sub" style="margin-top:6px;color:#856404">Please make the corrections above and tap <b>Submit duty</b> again.</div>'
+      +'</div>';
+  }
+  h+=formHtml()+'<div class="row" style="margin-top:12px"><button class="ghost" onclick="wSave(0)">Save draft</button><button onclick="confirmDutyModal()">Submit duty</button></div>';
+}else{
+  var isManager=(ME&&ME.role=="manager");
+  h=nav()+'<button class="ghost noprint" onclick="renderDutyTab()">Back to duty list</button><div style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:14px"><h1>'+esc(m.worker)+' \u00b7 '+esc(m.shift)+' \u00b7 '+m.d+'</h1>'+(isManager?'':autoBadge)+'</div>';
+  if(isManager){
+    h+='<div class="cust" style="background:var(--card);border:1px solid var(--line);padding:10px 14px;margin:8px 0 14px;border-radius:8px"><b style="font-size:15px">📋 Manager Review (Read-only)</b><div class="sub" style="margin-top:4px">Review the figures submitted by <b>'+esc(m.worker)+'</b>. You cannot make direct changes. If any correction is needed, send the duty back to the worker with notes. If all figures are verified, close the duty.</div></div>';
+  }else{
+    h+='<div class="sub">Check the figures, correct anything that is wrong, then close the duty. Entries are autosaved automatically.</div>';
+  }
+  h+=formHtml();
+  if(isManager){
+    h+='<div class="btns" style="margin-top:14px;display:flex;gap:8px"><button class="ghost" style="color:var(--due);border-color:var(--due);padding:11px 14px" onclick="sendBackModal()">↩ Send back to worker</button><button style="flex:1" onclick="closeDutyAsManager()">✓ Close duty</button></div>';
+  }else{
+    h+='<div class="btns" style="margin-top:14px;display:flex;gap:8px"><button class="ghost" style="color:var(--due);border-color:var(--due)" onclick="sendBackModal()">↩ Send back</button><button class="ghost" onclick="mSave(0)">Save changes</button><button style="flex:1" onclick="mSave(1)">Close duty</button></div>';
+  }
+}
 document.getElementById("app").innerHTML=h}
 function confirmDutyModal(){
   if(!DF)return;
@@ -1032,8 +2414,16 @@ function confirmDutyModal(){
     if(!hasClosing){
       missingClosing.push(nn);
     }else{
-      if(cl<op)invalidNozzles.push(nn+": Closing ("+cl+") is less than Opening ("+op+")");
-      if(ts>(cl-op))invalidNozzles.push(nn+": Testing ("+ts+" L) exceeds dispensed ("+(cl-op)+" L)");
+      var clStr=String(l.closing).trim();
+      if(clStr.indexOf('.')!==-1&&clStr.split('.')[1].length>2){
+        invalidNozzles.push(nn+": Closing reading must be up to two decimals");
+      }
+      var opStr=String(l.opening).trim();
+      if(opStr.indexOf('.')!==-1&&opStr.split('.')[1].length>2){
+        invalidNozzles.push(nn+": Opening reading must be up to two decimals");
+      }
+      if(cl<op)invalidNozzles.push(nn+": Closing ("+cl.toFixed(2)+") is less than Opening ("+op.toFixed(2)+")");
+      if(ts>(cl-op))invalidNozzles.push(nn+": Testing ("+ts.toFixed(2)+" L) exceeds dispensed ("+(cl-op).toFixed(2)+" L)");
     }
     var lt=hasClosing?Math.round((cl-op-ts)*100)/100:0;
     var amt=hasClosing?Math.round(lt*r*100)/100:0;
@@ -1041,10 +2431,10 @@ function confirmDutyModal(){
     return{
       name:nn,
       fuel:l.fuel||"",
-      opening:l.opening===""?"-":l.opening,
-      closing:hasClosing?l.closing:'<span style="color:var(--due);font-weight:700">Not entered</span>',
-      testing:ts,
-      litres:hasClosing?(lt+" L"):"-",
+      opening:l.opening===""?"-":op.toFixed(2),
+      closing:hasClosing?cl.toFixed(2):'<span style="color:var(--due);font-weight:700">Not entered</span>',
+      testing:ts.toFixed(2),
+      litres:hasClosing?(lt.toFixed(2)+" L"):"-",
       rate:r>0?(m2(r)+"/L"):'<span style="color:var(--warn)">No rate</span>',
       amount:hasClosing?m2(amt):"-"
     };
@@ -1205,13 +2595,23 @@ function doWorkerDutySubmit(){
       if(errDiv)errDiv.textContent="Please enter the closing reading for "+nn+" before submitting.";
       return;
     }
+    var clStr=String(l.closing).trim();
+    if(clStr.indexOf('.')!==-1&&clStr.split('.')[1].length>2){
+      if(errDiv)errDiv.textContent="Closing reading for "+nn+" must be up to two decimals.";
+      return;
+    }
+    var opStr=String(l.opening).trim();
+    if(opStr.indexOf('.')!==-1&&opStr.split('.')[1].length>2){
+      if(errDiv)errDiv.textContent="Opening reading for "+nn+" must be up to two decimals.";
+      return;
+    }
     var op=parseFloat(l.opening)||0,cl=parseFloat(l.closing)||0,ts=parseFloat(l.testing)||0;
     if(cl<op){
-      if(errDiv)errDiv.textContent="Closing reading ("+cl+") is less than opening reading ("+op+") for "+nn+".";
+      if(errDiv)errDiv.textContent="Closing reading ("+cl.toFixed(2)+") is less than opening reading ("+op.toFixed(2)+") for "+nn+".";
       return;
     }
     if(ts>(cl-op)){
-      if(errDiv)errDiv.textContent="Testing litres ("+ts+") exceed fuel dispensed ("+(cl-op)+") for "+nn+".";
+      if(errDiv)errDiv.textContent="Testing litres ("+ts.toFixed(2)+") exceed fuel dispensed ("+(cl-op).toFixed(2)+") for "+nn+".";
       return;
     }
   }
@@ -1241,7 +2641,7 @@ function doWorkerDutySubmit(){
   });
 }
 function dutyBlock(d,mn){var T=function(a,b,c){return '<tr><td>'+a+'</td><td class="r"'+(c?' style="color:'+c+'"':'')+'>'+b+'</td></tr>'};
-var h='<div class="cust" style="cursor:default"><div class="row"><b>'+esc(d.worker)+' \u00b7 '+esc(d.shift)+'</b><span class="sub" style="flex:none">'+d.d+'</span></div><div class="tbl" style="margin-top:8px"><table><tr><th>Nozzle</th><th class="r">Open</th><th class="r">Close</th><th class="r">Test</th><th class="r">Litres</th><th class="r">Rate</th><th class="r">Amount</th></tr>'+d.lines.map(function(l){return '<tr><td>'+esc(l.nozzle)+'<div class="sub">'+esc(l.fuel)+'</div></td><td class="r">'+l.opening+'</td><td class="r">'+l.closing+'</td><td class="r">'+l.testing+'</td><td class="r">'+l.litres+'</td><td class="r">'+m2(l.rate)+'</td><td class="r">'+m2(l.amount)+'</td></tr>'}).join("")+'</table></div>';
+var h='<div class="cust" style="cursor:default"><div class="row"><b>'+esc(d.worker)+' \u00b7 '+esc(d.shift)+'</b><span class="sub" style="flex:none">'+d.d+'</span></div><div class="tbl" style="margin-top:8px"><table><tr><th>Nozzle</th><th class="r">Open</th><th class="r">Close</th><th class="r">Test</th><th class="r">Litres</th><th class="r">Rate</th><th class="r">Amount</th></tr>'+d.lines.map(function(l){var opStr=l.opening!=null?Number(l.opening).toFixed(2):'-';var clStr=l.closing!=null?Number(l.closing).toFixed(2):'-';var tsStr=l.testing!=null?Number(l.testing).toFixed(2):'0.00';var ltStr=l.litres!=null?Number(l.litres).toFixed(2):'0.00';return '<tr><td>'+esc(l.nozzle)+'<div class="sub">'+esc(l.fuel)+'</div></td><td class="r">'+opStr+'</td><td class="r">'+clStr+'</td><td class="r">'+tsStr+'</td><td class="r">'+ltStr+'</td><td class="r">'+m2(l.rate)+'</td><td class="r">'+m2(l.amount)+'</td></tr>'}).join("")+'</table></div>';
 if(d.items.length)h+='<div class="tbl" style="margin-top:8px"><table><tr><th>Lube / shop</th><th class="r">Qty</th><th class="r">Price</th><th class="r">Amount</th></tr>'+d.items.map(function(i){return '<tr><td>'+esc(i.name)+'</td><td class="r">'+i.qty+'</td><td class="r">'+m2(i.price)+'</td><td class="r">'+m2(i.amount)+'</td></tr>'}).join("")+'</table></div>';
 if(d.expenses.length)h+='<div class="tbl" style="margin-top:8px"><table style="min-width:0"><tr><th>Expense</th><th class="r">Amount</th></tr>'+d.expenses.map(function(e){return '<tr><td>'+esc(e.cat)+(e.note?'<div class="sub">'+esc(e.note)+'</div>':'')+'</td><td class="r">'+m2(e.amount)+'</td></tr>'}).join("")+'</table></div>';
 if(d.credit_sales&&d.credit_sales.length)h+='<div class="tbl" style="margin-top:8px"><table style="min-width:0"><tr><th>Credit sale</th><th class="r">Amount</th></tr>'+d.credit_sales.map(function(c){return '<tr><td>'+esc(c.cname)+(c.n?'<div class="sub">'+esc(c.n)+(c.veh?' \u00b7 '+esc(c.veh):'')+'</div>':'')+'</td><td class="r">'+m2(c.a)+'</td></tr>'}).join("")+'</table></div>';
@@ -1254,15 +2654,14 @@ function renderW(){if(WD.duty){DF=fromDuty(WD.duty,{modes:WD.modes,cats:WD.cats,
 var h=ubar()+wnav()+'<h1>My duty</h1>'
   +'<div class="cust" style="cursor:default;margin-bottom:14px;padding:12px">'
   +'<div class="row"><b>No active duty in progress</b><span class="sub" style="flex:none;color:var(--ok)">Ready for shift</span></div>'
-  +'<div class="sub" style="margin-top:4px">Assign your next shift using nozzles from your latest closed duty, or hand over duty to a colleague.</div>'
-  +'<div class="btns" style="margin:10px 0 0"><button onclick="tab=\'wassign\';loadWAssign()">Assign / Handover duty</button></div>'
+  +'<div class="sub" style="margin-top:4px">Hand over duty and starting nozzle readings to an incoming colleague for the next shift.</div>'
+  +'<div class="btns" style="margin:10px 0 0"><button onclick="tab=\'wassign\';loadWAssign()">🤝 Handover duty</button></div>'
   +'</div>'
   +'<h1 style="margin-top:22px">My recent duties</h1>';
 if(!WD.recent.length)h+='<div class="empty">No duties yet.</div>';
 WD.recent.forEach(function(d){h+='<div class="cust" tabindex="0" onclick="viewMyDuty('+d.id+')"><div class="row"><b>'+esc(d.shift)+' \u00b7 '+d.d+'</b><span class="sub" style="flex:none;color:'+(d.status=="closed"?'var(--ok)':'var(--warn)')+'">'+(d.status=="closed"?"Closed":"Waiting for manager")+'</span></div><div class="sub">'+d.litres+' L \u00b7 Sales '+inr(d.sales+d.lube)+' \u00b7 Collected '+inr(d.collected)+' \u00b7 '+sgn(d.diff)+'</div></div>'});
 document.getElementById("app").innerHTML=h}
 var WORKER_ASSIGN_DATA=null;
-var WORKER_ASSIGN_MODE="self";
 function loadWAssign(){
   tab="wassign";
   document.getElementById("app").innerHTML=ubar()+wnav()+'<div class="empty">Loading assignment details...</div>';
@@ -1274,27 +2673,23 @@ function loadWAssign(){
     document.getElementById("app").innerHTML=ubar()+wnav()+'<div class="empty">Could not load. '+esc(e.error||"Check connection.")+'</div>';
   });
 }
-function setAssignMode(mode){
-  WORKER_ASSIGN_MODE=mode;
-  renderWAssign();
-}
 function renderWAssign(r){
   if(r)WORKER_ASSIGN_DATA=r;
   else r=WORKER_ASSIGN_DATA;
   if(!r)return;
 
-  var h=ubar()+wnav()+'<button class="ghost noprint" onclick="tab=\'wduty\';loadW()" style="margin-bottom:12px">← Back to My duty</button><h1>Assign / Handover duty</h1>';
+  var h=ubar()+wnav()+'<button class="ghost noprint" onclick="tab=\'wduty\';loadW()" style="margin-bottom:12px">← Back to My duty</button><h1>🤝 Handover duty</h1>';
   if(r.has_open){
     h+='<div class="cust" style="cursor:default;padding:14px">'
       +'<div class="row"><b style="color:var(--ok)">Active duty in progress</b><span class="sub" style="flex:none">'+esc(r.duty.shift)+' · '+esc(r.duty.d)+'</span></div>'
-      +'<div class="sub" style="margin-top:6px">You already have an open duty in progress. Complete and submit it before assigning or handing over the next shift.</div>'
+      +'<div class="sub" style="margin-top:6px">You already have an open duty in progress. Complete and submit it before handing over the next shift.</div>'
       +'<div class="btns" style="margin:12px 0 0"><button onclick="tab=\'wduty\';loadW()">Go to active duty</button></div>'
       +'</div>';
     document.getElementById("app").innerHTML=h;
     return;
   }
   if(!r.latest_closed){
-    h+='<div class="empty">No closed duty found to assign from. Your manager must assign your first duty. Once completed and closed, you can assign future shifts here.</div>';
+    h+='<div class="empty">No closed duty found to hand over from. Once a shift is completed and closed, you can hand over future shifts here.</div>';
     document.getElementById("app").innerHTML=h;
     return;
   }
@@ -1304,47 +2699,89 @@ function renderWAssign(r){
   else if(lc.shift=="Evening")nextShift="Night";
   else if(lc.shift=="Night")nextShift="Morning";
 
-  var isHandover=(WORKER_ASSIGN_MODE==="handover");
-  h+='<div class="sub" style="margin-bottom:12px">Choose whether to continue with your next shift or hand over duty to an incoming colleague.</div>';
-
-  h+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px">'
-    +'<button class="'+(isHandover?'ghost':'')+'" onclick="setAssignMode(\'self\')" style="padding:10px 8px;font-size:14px">Assign to myself</button>'
-    +'<button class="'+(isHandover?'':'ghost')+'" onclick="setAssignMode(\'handover\')" style="padding:10px 8px;font-size:14px">🤝 Handover duty</button>'
-    +'</div>';
+  h+='<div class="sub" style="margin-bottom:12px">Hand over duty and starting nozzle readings to an incoming colleague for the next shift.</div>';
 
   h+='<div class="cust" style="cursor:default;margin-bottom:14px;padding:12px">'
     +'<div class="row"><b>Previous duty ('+esc(lc.shift)+')</b><span class="sub" style="flex:none;color:var(--ok)"><b>'+(lc.status=="closed"?"Closed ✓":"Submitted ✓")+'</b></span></div>'
     +'<div class="sub" style="margin-top:4px">Completed by: <b>'+esc(ME?ME.name:"Worker")+'</b> · Business date: <b>'+esc(lc.d)+'</b></div>'
     +'</div>';
 
-  if(isHandover){
-    var cList=r.colleagues||[];
-    if(!cList.length){
-      h+='<div class="cust" style="background:#fff3cd;border-color:#ffeeba;color:#856404;padding:10px 12px;margin-bottom:12px">⚠️ No other active workers are registered. Add workers in the Team tab to hand over duty.</div>';
-    }else{
-      h+='<label>Incoming worker (handover to)<select id="wa_target_worker">'
-        +cList.map(function(w){return '<option value="'+w.id+'">'+esc(w.name)+'</option>'}).join("")
-        +'</select></label>';
-    }
+  var myId=(ME&&ME.id)?ME.id:null;
+  var cList=(r.colleagues||[]).filter(function(w){return w.role==='worker'});
+  var otherColleagues=cList.filter(function(w){return w.id!=myId});
+  var defaultTargetId=otherColleagues.length?otherColleagues[0].id:(cList[0]?cList[0].id:"");
+  var hasMultipleNozzles=(r.nozzles&&r.nozzles.length>1);
+
+  if(!cList.length){
+    h+='<div class="cust" style="background:#fff3cd;border-color:#ffeeba;color:#856404;padding:10px 12px;margin-bottom:12px">⚠️ No active workers are registered. Add workers in the Team tab to hand over duty.</div>';
+  }else if(!hasMultipleNozzles){
+    h+='<label>Incoming worker (handover to)<select id="wa_target_worker">'
+      +cList.map(function(w){
+        var isSelf=(w.id==myId);
+        var selfTag=isSelf?' (You)':'';
+        var busyTag=w.busy?' - currently on duty':'';
+        var isSel=(w.id==defaultTargetId);
+        return '<option value="'+w.id+'"'+(isSel?' selected':'')+'>'+esc(w.name)+selfTag+busyTag+'</option>';
+      }).join("")
+      +'</select></label>';
   }
 
-  h+='<label>Shift for '+(isHandover?'incoming worker':'new duty')+'<select id="wa_shift">'
+  h+='<label>Shift for incoming worker<select id="wa_shift">'
     +(r.shifts||["Morning","Evening","Night"]).map(function(s){return '<option value="'+s+'"'+(s==nextShift?' selected':'')+'>'+s+' shift</option>'}).join("")
     +'</select></label>';
 
   h+='<label>Business day<input value="'+r.date+' ('+(r.day=="open"?"Open":"Closed")+')" disabled style="background:var(--bg)"></label>';
 
-  if(isHandover){
-    h+='<label>Handover note (optional)<input id="wa_note" placeholder="e.g. Cash till checked, dip taken, notes for incoming worker"></label>';
+  h+='<label>Handover note (optional)<input id="wa_note" placeholder="e.g. Cash till checked, dip taken, notes for incoming worker"></label>';
+
+  if(hasMultipleNozzles){
+    h+='<div style="background:rgba(11,122,95,0.06);border:1px solid rgba(11,122,95,0.25);border-radius:8px;padding:10px 12px;margin:16px 0 8px">';
+    h+='<div style="display:flex;align-items:center;gap:6px;font-weight:700;color:var(--ink)"><span>⛽ Multi-Nozzle Handover ('+r.nozzles.length+' nozzles)</span></div>';
+    h+='<div class="sub" style="margin-top:2px">You operated '+r.nozzles.length+' nozzles. Assign each nozzle to an incoming staff member below, or quick-assign all to one person.</div>';
+    h+='</div>';
+
+    h+='<div style="background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">';
+    h+='<div><b style="font-size:13px;color:var(--ink)">⚡ Quick Assign:</b> <span class="sub">Set all nozzles to:</span></div>';
+    h+='<select id="wa_bulk_worker" style="margin:0;max-width:240px;padding:6px 10px;font-size:13px" onchange="setAllHandoverWorkers(this.value)">';
+    h+='<option value="">-- Choose staff for all nozzles --</option>';
+    cList.forEach(function(w){
+      var isSelf=(w.id==myId);
+      var selfTag=isSelf?' (You)':'';
+      var busyTag=w.busy?' - on duty':'';
+      h+='<option value="'+w.id+'">'+esc(w.name)+selfTag+busyTag+'</option>';
+    });
+    h+='</select>';
+    h+='</div>';
   }
 
-  h+='<div class="sub" style="font-weight:700;color:var(--ink);margin:16px 0 6px">Nozzles & starting readings being '+(isHandover?'handed over':'assigned')+'</div>';
-  h+='<div class="tbl"><table><tr><th>Nozzle</th><th>Fuel</th><th class="r">Starting opening</th><th class="r">Current rate</th></tr>';
+  h+='<div class="sub" style="font-weight:700;color:var(--ink);margin:16px 0 6px">Nozzle assignments & starting readings</div>';
+  h+='<div class="tbl"><table><tr><th>Nozzle & Fuel</th><th class="r">Starting opening</th><th class="r">Rate</th>'+(hasMultipleNozzles?'<th style="min-width:170px">Handover to Staff</th>':'')+'</tr>';
   (r.nozzles||[]).forEach(function(n){
     var busyNote=n.busy_by?'<div class="sub" style="color:var(--due)">Busy with '+esc(n.busy_by)+'</div>':'';
-    h+='<tr><td><b>'+esc(n.name)+'</b>'+busyNote+'</td><td>'+esc(n.fuel)+'</td><td class="r"><b>'+(n.opening!=null?n.opening:'-')+'</b></td><td class="r">'+(n.rate!=null?(m2(n.rate)+'/L'):'-')+'</td></tr>';
+    h+='<tr>';
+    h+='<td><b>'+esc(n.name)+'</b> <span class="sub">('+esc(n.fuel)+')</span>'+busyNote+'</td>';
+    h+='<td class="r"><b>'+(n.opening!=null?Number(n.opening).toFixed(2):'-')+'</b></td>';
+    h+='<td class="r">'+(n.rate!=null?(m2(n.rate)+'/L'):'-')+'</td>';
+    if(hasMultipleNozzles){
+      h+='<td>';
+      h+='<select class="wa_nozzle_worker" data-nozzle-id="'+n.id+'" data-nozzle-name="'+esc(n.name)+'" style="margin:0;padding:6px 8px;font-size:13px;width:100%" onchange="updateHandoverSummary()" '+(n.busy_by?'disabled':'')+'>';
+      cList.forEach(function(w){
+        var isSelf=(w.id==myId);
+        var selfTag=isSelf?' (You)':'';
+        var busyTag=w.busy?' - on duty':'';
+        var isSel=(w.id==defaultTargetId);
+        h+='<option value="'+w.id+'"'+(isSel?' selected':'')+'>'+esc(w.name)+selfTag+busyTag+'</option>';
+      });
+      h+='</select>';
+      h+='</td>';
+    }
+    h+='</tr>';
   });
   h+='</table></div>';
+
+  if(hasMultipleNozzles){
+    h+='<div id="wa_summary_box" style="margin-top:10px;padding:10px 12px;background:rgba(11,122,95,0.06);border:1px solid rgba(11,122,95,0.25);border-radius:8px;font-size:13px"></div>';
+  }
 
   if(r.day!="open"){
     h+='<div class="cust" style="background:#fff3cd;border-color:#ffeeba;color:#856404;margin-top:12px;padding:10px 12px;cursor:default">'
@@ -1352,59 +2789,110 @@ function renderWAssign(r){
       +'</div>';
   }
 
-  var noColleagues=isHandover&&(!r.colleagues||!r.colleagues.length);
+  var noColleagues=(!cList||!cList.length);
   var btnDisabled=(r.day!="open")||noColleagues;
 
   h+='<div class="err" id="waErr" style="margin-top:8px"></div>'
     +'<div class="btns" style="margin-top:16px">'
     +'<button id="btnDoAssign" style="width:100%" '+(btnDisabled?'disabled ':'')+'onclick="doWorkerAssign()">'
-    +(isHandover?'🤝 Confirm handover & assign duty':'Assign duty & start shift')
+    +'🤝 Confirm handover & assign duty'
     +'</button>'
     +'</div>';
 
   document.getElementById("app").innerHTML=h;
+  if(hasMultipleNozzles){
+    setTimeout(updateHandoverSummary, 10);
+  }
+}
+function setAllHandoverWorkers(wId){
+  if(!wId)return;
+  var selects=document.querySelectorAll(".wa_nozzle_worker");
+  selects.forEach(function(s){
+    if(!s.disabled)s.value=wId;
+  });
+  updateHandoverSummary();
+}
+function updateHandoverSummary(){
+  var box=document.getElementById("wa_summary_box");
+  if(!box)return;
+  var selects=document.querySelectorAll(".wa_nozzle_worker");
+  var map={};
+  selects.forEach(function(s){
+    if(!s.disabled&&s.value){
+      var opt=s.options[s.selectedIndex];
+      var rawName=opt?opt.text.replace(/\s*\([^)]*\)/g,"").replace(/\s*-.*$/,"").trim():"Staff";
+      var nName=s.getAttribute("data-nozzle-name")||"Nozzle";
+      if(!map[rawName])map[rawName]=[];
+      map[rawName].push(nName);
+    }
+  });
+  var keys=Object.keys(map);
+  if(!keys.length){
+    box.innerHTML='<b>🤝 Handover Plan:</b> Please assign nozzles to staff members.';
+    return;
+  }
+  var lines=keys.map(function(k){
+    return '• <b>'+esc(k)+'</b> will take '+map[k].length+' nozzle'+(map[k].length>1?'s':'')+' ('+map[k].map(esc).join(', ')+')';
+  });
+  box.innerHTML='<div style="font-weight:700;color:var(--ok);margin-bottom:3px">📋 Handover Allocation Summary:</div>'+lines.join('<br/>');
 }
 function doWorkerAssign(){
   var btn=document.getElementById("btnDoAssign");
   var errDiv=document.getElementById("waErr");
-  var isHandover=(WORKER_ASSIGN_MODE==="handover");
-  var targetWorkerId=isHandover?v("wa_target_worker"):null;
-  var note=isHandover?v("wa_note"):"";
+  var note=v("wa_note");
   var shift=v("wa_shift");
 
-  if(isHandover&&!targetWorkerId){
-    if(errDiv)errDiv.textContent="Please select a worker to hand over the duty to.";
+  var selects=document.querySelectorAll(".wa_nozzle_worker");
+  var nozzle_assignments=[];
+  var singleTargetId=v("wa_target_worker");
+
+  if(selects.length>0){
+    for(var i=0;i<selects.length;i++){
+      var s=selects[i];
+      if(s.disabled)continue;
+      var nId=s.getAttribute("data-nozzle-id");
+      var wId=s.value;
+      if(!wId){
+        if(errDiv)errDiv.textContent="Please select a staff member for all active nozzles.";
+        return;
+      }
+      nozzle_assignments.push({nozzle_id:+nId,target_worker_id:+wId});
+    }
+    if(!nozzle_assignments.length){
+      if(errDiv)errDiv.textContent="No active nozzles available to hand over.";
+      return;
+    }
+  }else if(singleTargetId){
+    nozzle_assignments=[{nozzle_id:0,target_worker_id:+singleTargetId}];
+  }else{
+    if(errDiv)errDiv.textContent="Please select an incoming staff member.";
     return;
   }
 
   if(btn){
     btn.disabled=true;
-    btn.textContent=isHandover?"Handing over duty...":"Assigning duty...";
+    btn.textContent="Handing over duty...";
   }
 
-  var payload={shift:shift};
-  if(isHandover){
-    payload.target_worker_id=targetWorkerId;
-    payload.note=note;
-  }
+  var payload={
+    shift:shift,
+    nozzle_assignments:nozzle_assignments,
+    target_worker_id:singleTargetId||(nozzle_assignments[0]?nozzle_assignments[0].target_worker_id:null),
+    note:note
+  };
 
   api("POST","/api/worker/assign-duty",payload).then(function(res){
-    if(isHandover){
-      toast("Duty handed over to "+(res.target_name||"worker")+" successfully!");
-      tab="wduty";
-      loadW();
-    }else{
-      toast("Duty assigned successfully! You can now record readings.");
-      tab="wduty";
-      loadW();
-    }
+    var successMsg=res.worker_summary?("Duty handed over: "+res.worker_summary):("Duty handed over to "+(res.target_name||"worker")+" successfully!");
+    toast(successMsg);
+    tab="wduty";
+    loadW();
   }).catch(function(e){
     if(btn){
       btn.disabled=false;
-      btn.textContent=isHandover?"🤝 Confirm handover & assign duty":"Assign duty & start shift";
+      btn.textContent="🤝 Confirm handover & assign duty";
     }
-    if(errDiv)errDiv.textContent=e.error||"Could not assign duty.";
-    else toast(e.error||"Could not assign duty.");
+    if(errDiv)errDiv.textContent=e.error||"Could not complete handover. Check your connection.";
+    else toast(e.error||"Could not complete handover.");
   });
 }
 function viewMyDuty(id){api("GET","/api/my-duties/"+id).then(function(r){var mn={};r.modes.forEach(function(m){mn[m.key]=m.name});document.getElementById("app").innerHTML=ubar()+wnav()+'<button class="ghost" onclick="loadW()">Back to my duties</button><div style="margin-top:10px">'+dutyBlock(r.duty,mn)+'</div>'}).catch(function(e){toast(e.error||"Could not open the duty.")})}
@@ -1442,13 +2930,77 @@ function assignForm(){api("GET","/api/assign-info").then(function(r){
 if(!r.workers.length)return toast("Add a worker in the Team tab first.");
 if(r.day!="open")return toast("Today's business day is closed. Ask the owner to reopen it.");
 if(!r.nozzles.length)return toast("Add nozzles in Pump setup first (owner).");
-openM('<h2>Assign duty</h2><div class="sub">Business day '+r.date+'</div><label>Worker<select id="as_w">'+r.workers.map(function(w){return '<option value="'+w.id+'">'+esc(w.name)+'</option>'}).join("")+'</select></label><label>Shift<select id="as_s"><option>Morning</option><option>Evening</option><option>Night</option></select></label><div class="sub" style="margin-top:12px">Nozzles</div>'+r.nozzles.map(function(n){var why=n.busy_by?"with "+n.busy_by:n.rate==null?"no rate set":n.opening==null?"no opening reading":"";return '<label style="display:flex;gap:8px;align-items:center;color:var(--ink)"><input type="checkbox" class="an" value="'+n.id+'" style="width:auto;margin:0"'+(why?' disabled':'')+'>'+esc(n.name)+' \u00b7 '+esc(n.fuel)+(why?' <span class="sub">('+esc(why)+')</span>':' <span class="sub">(starts at '+n.opening+', '+m2(n.rate)+'/L)</span>')+'</label>'}).join("")+'<div class="err" id="er"></div><div class="row" style="margin-top:12px"><button class="ghost" onclick="close()">Cancel</button><button onclick="doAssign()">Assign duty</button></div>')}).catch(function(e){toast(e.error||"Could not load.")})}
+openM('<h2>Assign duty</h2><div class="sub">Business day '+r.date+'</div><label>Worker<select id="as_w">'+r.workers.map(function(w){return '<option value="'+w.id+'">'+esc(w.name)+'</option>'}).join("")+'</select></label><label>Shift<select id="as_s"><option>Morning</option><option>Evening</option><option>Night</option></select></label><div class="sub" style="margin-top:12px">Nozzles</div>'+r.nozzles.map(function(n){var why=n.busy_by?"with "+n.busy_by:n.rate==null?"no rate set":n.opening==null?"no opening reading":"";return '<label style="display:flex;gap:8px;align-items:center;color:var(--ink)"><input type="checkbox" class="an" value="'+n.id+'" style="width:auto;margin:0"'+(why?' disabled':'')+'>'+esc(n.name)+' \u00b7 '+esc(n.fuel)+(why?' <span class="sub">('+esc(why)+')</span>':' <span class="sub">(starts at '+(n.opening!=null?Number(n.opening).toFixed(2):'0.00')+', '+m2(n.rate)+'/L)</span>')+'</label>'}).join("")+'<div class="err" id="er"></div><div class="row" style="margin-top:12px"><button class="ghost" onclick="close()">Cancel</button><button onclick="doAssign()">Assign duty</button></div>')}).catch(function(e){toast(e.error||"Could not load.")})}
 function doAssign(){var ids=[].slice.call(document.querySelectorAll(".an:checked")).map(function(x){return x.value});if(!ids.length)return er("Choose at least one nozzle.");api("POST","/api/duties/assign",{worker_id:v("as_w"),shift:v("as_s"),nozzle_ids:ids}).then(function(){close();renderDutyTab()}).catch(function(e){er(e.error||"Could not assign.")})}
 function reviewDuty(id){fetchCL();api("GET","/api/duties/"+id).then(function(d){var pay=d.pay||{};
 if(d.status=="closed"){document.getElementById("app").innerHTML=nav()+'<button class="ghost noprint" onclick="renderDutyTab()">Back to duty list</button><div style="margin-top:10px">'+dutyBlock(d,mname())+'</div>'+(ME.role=="owner"?'<div class="btns noprint"><button class="ghost" onclick="reopenDuty('+d.id+')">Reopen for changes</button></div>':'');return}
 var ms=allModes().filter(function(m){return m.active!==false||m.key=="cash"||pay[m.key]!=null}).map(function(m){return{key:m.key,name:m.name}}),ci=S.items.map(function(i){return{id:i.id,name:i.name,unit:i.unit,sell:i.sell,stock:i.stock}});
 DF=fromDuty(d,{modes:ms,cats:cats(),items:ci},"review");renderDF()}).catch(function(e){toast(e.error||"Could not open the duty.")})}
 function mSave(close){if(autoSaveTimer){clearTimeout(autoSaveTimer);autoSaveTimer=null}autoSavePending=false;var url="/api/duties/"+DF.id+(close?"?strict=1":"?strict=0");api("PUT",url,dpay()).then(function(){return close?api("POST","/api/duties/"+DF.id+"/close"):0}).then(function(){if(close){try{localStorage.removeItem("petrol_duty_draft_"+DF.id)}catch(e){}setAutoSaveStatus("","");reloadState(renderDutyTab)}else{setAutoSaveStatus("Changes saved \u2713","var(--ok)",false);msg("Changes saved.",1)}}).catch(function(e){msg(e.error||"Could not save.")})}
+function sendBackModal(){
+  if(!DF)return;
+  var m=DF.meta||{};
+  var workerName=m.worker||"Worker";
+  var h='<h2>Send back duty</h2>'
+    +'<div class="sub">Send this duty back to <b>'+esc(workerName)+'</b> ('+esc(m.shift)+' shift \u00b7 '+esc(m.d)+') for corrections. The duty will be reopened for the worker to edit and resubmit.</div>'
+    +'<label style="margin-top:12px">Reason / correction notes for worker'
+    +'<textarea id="sbReason" placeholder="Explain what needs to be corrected (e.g. Closing meter reading is wrong, mismatch in cash collected, missing expense voucher...)" style="width:100%;height:95px;margin-top:6px;padding:10px;border:1px solid var(--line);border-radius:8px;font-family:inherit;font-size:14px;resize:vertical"></textarea>'
+    +'</label>'
+    +'<div class="err" id="sbErr" style="margin-top:6px"></div>'
+    +'<div class="btns" style="margin-top:14px;display:flex;gap:8px">'
+    +'<button class="ghost" onclick="close()">Cancel</button>'
+    +'<button id="btnSendBack" style="background:var(--due);color:#fff;border-color:var(--due);flex:1" onclick="doSendBack('+DF.id+')">\u21a9 Send back to worker</button>'
+    +'</div>';
+  openM(h);
+  setTimeout(function(){
+    var ta=document.getElementById("sbReason");
+    if(ta)ta.focus();
+  },50);
+}
+function doSendBack(id){
+  var reason=(document.getElementById("sbReason")?document.getElementById("sbReason").value:"").trim();
+  var btn=document.getElementById("btnSendBack");
+  var err=document.getElementById("sbErr");
+  if(btn){btn.disabled=true;btn.textContent="Sending back...";}
+  api("POST","/api/duties/"+id+"/send-back",{note:reason}).then(function(res){
+    close();
+    toast(res&&res.message?res.message:"Duty sent back to worker for corrections.");
+    reloadState(renderDutyTab);
+  }).catch(function(e){
+    if(btn){btn.disabled=false;btn.textContent="\u21a9 Send back to worker";}
+    if(err)err.textContent=e.error||"Could not send duty back.";
+    else toast(e.error||"Could not send duty back.");
+  });
+}
+function closeDutyAsManager(){
+  if(!DF)return;
+  var m=DF.meta||{};
+  var workerName=m.worker||"Worker";
+  var h='<h2>Close duty</h2>'
+    +'<div class="sub">Verify and close the duty submitted by <b>'+esc(workerName)+'</b> ('+esc(m.shift)+' shift \u00b7 '+esc(m.d)+').</div>'
+    +'<div class="cust" style="cursor:default;margin:12px 0;padding:10px 14px;background:var(--bg)">'
+    +'<div class="sub">All submitted fuel sales, collections, and stock movements will be finalized.</div>'
+    +'</div>'
+    +'<div class="err" id="mCloseErr" style="margin-top:6px"></div>'
+    +'<div class="btns" style="margin-top:14px;display:flex;gap:8px">'
+    +'<button class="ghost" onclick="close()">Cancel</button>'
+    +'<button id="btnMgrClose" style="flex:1" onclick="doMgrClose('+DF.id+')">\u2713 Confirm & Close duty</button>'
+    +'</div>';
+  openM(h);
+}
+function doMgrClose(id){
+  var btn=document.getElementById("btnMgrClose"),err=document.getElementById("mCloseErr");
+  if(btn){btn.disabled=true;btn.textContent="Closing duty...";}
+  api("POST","/api/duties/"+id+"/close").then(function(){
+    close();
+    toast("Duty approved and closed successfully.");
+    reloadState(renderDutyTab);
+  }).catch(function(e){
+    if(btn){btn.disabled=false;btn.textContent="\u2713 Confirm & Close duty";}
+    if(err)err.textContent=e.error||"Could not close the duty.";
+    else toast(e.error||"Could not close the duty.");
+  });
+}
 function reopenDuty(id){api("POST","/api/duties/"+id+"/reopen").then(function(){reloadState(function(){reviewDuty(id)})}).catch(function(e){toast(e.error||"Could not reopen.")})}
 function dayReport(){api("GET","/api/day-report?d="+DD).then(function(r){var mn={};r.modes.forEach(function(m){mn[m.key]=m.name});var s=r.summary,h=nav()+'<button class="ghost noprint" onclick="renderDutyTab()">Back to duty list</button><h1 style="margin-top:14px">Day report \u00b7 '+r.d+'</h1><div class="sub">Closed duties only. Day status: '+esc(r.day.status)+'</div><div class="row noprint" style="margin:10px 0;gap:6px"><button class="'+(RV=="sum"?'':'ghost')+'" onclick="RV=\'sum\';dayReport()">Summary</button><button class="'+(RV=="det"?'':'ghost')+'" onclick="RV=\'det\';dayReport()">Worker-wise detail</button><button class="ghost" style="flex:none" onclick="window.print()">Print</button></div>';
 if(!r.duties.length)h+='<div class="empty">No closed duties on this date.</div>';
@@ -1463,7 +3015,7 @@ tab="setup";if(SU=="open"||!SU)SU="nozzles";var T=[["nozzles","Nozzles"],["tanks
 var h=nav()+'<h1>Pump setup</h1><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px;margin-bottom:12px">'+T.map(function(t){return '<button style="padding:9px 4px;font-size:12px;min-width:0;line-height:1.2" class="'+(SU==t[0]?'':'ghost')+'" onclick="SU=\''+t[0]+'\';renderSetup()">'+t[1]+'</button>'}).join("")+'</div>';
 var tn=function(id){var t=S.tanks.filter(function(x){return x.id==id})[0];return t?t.name:"No tank"};
 if(SU=="nozzles"){h+='<div class="btns"><button onclick="nozEdit(0)">Add nozzle</button></div>';if(!S.nozzles.length)h+='<div class="empty">No nozzles yet. Tap Add nozzle to configure pump nozzles and their opening meter readings.</div>';
-S.nozzles.forEach(function(n){h+='<div class="cust" style="cursor:default'+(n.active===false?';opacity:.6':'')+'"><div class="row"><b>'+esc(n.name)+'</b><span class="sub" style="flex:none">'+(n.active===false?'Inactive':'Active')+'</span></div><div class="sub">'+esc(n.fuel)+' \u00b7 '+esc(tn(n.tank_id))+'</div><div class="sub" style="margin-top:4px">Opening reading: '+(n.open!=null?'<b style="color:var(--ink)">'+n.open+'</b>':'<span style="color:var(--warn);font-weight:700">Not set (required for duties)</span>')+'</div><div class="btns" style="margin:8px 0 0"><button class="ghost" style="padding:6px 10px" onclick="nozEdit(\''+n.id+'\')">Edit</button></div></div>'})}
+S.nozzles.forEach(function(n){h+='<div class="cust" style="cursor:default'+(n.active===false?';opacity:.6':'')+'"><div class="row"><b>'+esc(n.name)+'</b><span class="sub" style="flex:none">'+(n.active===false?'Inactive':'Active')+'</span></div><div class="sub">'+esc(n.fuel)+' \u00b7 '+esc(tn(n.tank_id))+'</div><div class="sub" style="margin-top:4px">Opening reading: '+(n.open!=null?'<b style="color:var(--ink)">'+Number(n.open).toFixed(2)+'</b>':'<span style="color:var(--warn);font-weight:700">Not set (required for duties)</span>')+'</div><div class="btns" style="margin:8px 0 0"><button class="ghost" style="padding:6px 10px" onclick="nozEdit(\''+n.id+'\')">Edit</button></div></div>'})}
 else if(SU=="tanks"){h+='<div class="sub">Underground fuel storage tanks, capacities, and calibration dip charts.</div><div class="btns"><button onclick="tankEdit(0)">Add tank</button></div>';if(!S.tanks.length)h+='<div class="empty">No storage tanks configured yet. Tap Add tank to set up storage tanks for petrol, diesel, and power fuels.</div>';S.tanks.forEach(function(t){var linked=S.nozzles.filter(function(n){return n.tank_id==t.id});var nozNames=linked.map(function(n){return n.name}).join(", ");h+='<div class="cust" style="cursor:default"><div class="row"><b>'+esc(t.name)+' \u00b7 '+esc(t.fuel)+'</b><span class="amt" style="flex:none">'+(t.capacity?lt(t.capacity):'No capacity set')+'</span></div><div class="sub">'+(t.chart&&t.chart.length>1?'Dip chart calibrated ('+t.chart.length+' points)':'No dip chart set')+'</div><div class="sub" style="margin-top:4px">Connected nozzles: '+(nozNames?esc(nozNames):'<span style="color:var(--mute)">None</span>')+'</div><div class="btns" style="margin:8px 0 0"><button class="ghost" style="padding:6px 10px" onclick="tankEdit('+t.id+')">Edit tank</button><button class="ghost" style="padding:6px 10px;color:var(--due)" onclick="tankDel('+t.id+')">Delete</button></div></div>'})}
 else if(SU=="rates"){var fs=[];S.nozzles.forEach(function(n){if(fs.indexOf(n.fuel)<0)fs.push(n.fuel)});S.rates.forEach(function(r){if(fs.indexOf(r.fuel)<0)fs.push(r.fuel)});
 h+='<div class="sub">A new rate applies to duties on or after its start date. Duties already assigned keep the rate they started with.</div>';if(!fs.length)h+='<div class="empty">Add nozzles first.</div>';
@@ -1475,15 +3027,15 @@ else if(SU=="modes"){h+='<div class="sub">Turn off the payment modes you do not 
 h+='<label>Add a payment mode<input id="nm" placeholder="e.g. Fleet card"></label><div class="err" id="er"></div><button style="margin-top:10px" onclick="modeAdd()">Add mode</button>'}
 else if(SU=="cust"){h+='<div class="sub">Inactive customers are hidden from workers and invoices. Their ledger stays.</div>';if(!S.c.length)h+='<div class="empty">No credit customers yet.</div>';S.c.forEach(function(c){h+='<div class="row" style="margin-top:8px"><span>'+esc(c.name)+'</span><button class="'+(c.active===false?'ghost':'')+'" style="flex:none;padding:6px 10px" onclick="custTog('+c.id+')">'+(c.active===false?'Inactive':'Active')+'</button></div>'})}
 else if(SU=="biz"){var b=S.biz||{name:"",addr:"",gst:""};h+='<div class="sub">These pump details appear on GST invoices, statements, and reports.</div>';if(b.name){h+='<div class="cust" style="cursor:default;margin-bottom:14px"><div class="row"><b style="font-size:16px">'+esc(b.name)+'</b></div>'+(b.addr?'<div class="sub">'+esc(b.addr)+'</div>':'')+'<div class="sub" style="margin-top:4px">GSTIN: '+(b.gst?'<b style="color:var(--ink)">'+esc(b.gst)+'</b>':'<span style="color:var(--warn);font-weight:700">Not set</span>')+'</div></div>'}h+='<label>Pump name<input id="bz1" placeholder="e.g. Mahud Auto Fuel Station" value="'+esc(b.name||"")+'"></label><label>Address<input id="bz2" placeholder="e.g. NH 65, Mahud, Solapur" value="'+esc(b.addr||"")+'"></label><label>GSTIN (15 characters)<input id="bz3" placeholder="e.g. 27ABCDE1234F1Z5" autocapitalize="characters" value="'+esc(b.gst||"")+'"></label><div class="err" id="er"></div><div class="btns" style="margin-top:12px"><button onclick="saveBizSetup()">Save business details</button></div>'}
-else if(SU=="team"){h+='<div class="sub">Worker and manager accounts for this petrol pump.</div><div class="btns"><button onclick="userForm()">Add user</button></div><div id="setup_team"><div class="empty">Loading team\u2026</div></div>';A.innerHTML=h;api("GET","/api/users").then(function(U){if(tab!="setup"||SU!="team")return;var el=document.getElementById("setup_team");if(!el)return;if(!U.length){el.innerHTML='<div class="empty">No team members yet. Tap Add user to create accounts.</div>';return}var th="";U.forEach(function(u){th+='<div class="cust" style="cursor:default"><div class="row"><b>'+esc(u.name)+'</b><span class="sub" style="flex:none;text-align:right">'+u.role+(u.active?'':' \u00b7 inactive')+'</span></div><div class="sub">Mobile '+esc(u.mobile)+'</div>'+(u.role=="owner"?'':'<div class="btns" style="margin:10px 0 0"><button class="ghost" onclick="userAct('+u.id+',\''+(u.active?'off':'on')+'\')">'+(u.active?'Deactivate':'Activate')+'</button><button class="ghost" onclick="resetPw('+u.id+')">Reset password</button></div>')+'</div>'});el.innerHTML=th}).catch(function(e){var el=document.getElementById("setup_team");if(el)el.innerHTML='<div class="empty">Could not load the team. '+esc(e.error||"")+'</div>'});return}
+else if(SU=="team"){h+='<div class="sub">Worker and manager accounts for this petrol pump.</div><div class="btns"><button onclick="userForm()">Add user</button></div><div id="setup_team"><div class="empty">Loading team\u2026</div></div>';A.innerHTML=h;api("GET","/api/users").then(function(U){if(tab!="setup"||SU!="team")return;var el=document.getElementById("setup_team");if(!el)return;TEAM_USERS=U;if(!U.length){el.innerHTML='<div class="empty">No team members yet. Tap Add user to create accounts.</div>';return}var th="";U.forEach(function(u){th+='<div class="cust" style="cursor:default"><div class="row"><b>'+esc(u.name)+'</b><span class="sub" style="flex:none;text-align:right">'+u.role+(u.active?'':' \u00b7 inactive')+'</span></div><div class="sub">Mobile '+esc(u.mobile)+'</div><div class="btns" style="margin:10px 0 0"><button class="ghost" onclick="editUserForm('+u.id+')">Edit user</button>'+(u.role=="owner"?'':'<button class="ghost" onclick="userAct('+u.id+',\''+(u.active?'off':'on')+'\')">'+(u.active?'Deactivate':'Activate')+'</button><button class="ghost" onclick="resetPw('+u.id+')">Reset password</button>')+'</div></div>'});el.innerHTML=th}).catch(function(e){var el=document.getElementById("setup_team");if(el)el.innerHTML='<div class="empty">Could not load the team. '+esc(e.error||"")+'</div>'});return}
 else if(SU=="bak"){var n=function(a){return (a||[]).length};h+='<div class="sub">Export data backup files or restore business data.</div><div class="cust" style="cursor:default">'+(SRV?'<b>Your data is stored on your server database.</b><div class="sub">Still download regular backup files and keep them in a safe place.</div>':'<b>Your data lives only in this browser.</b><div class="sub">Clearing browser data or switching phones loses it. Back up regularly and keep the file safe.</div>')+'<div class="sub" style="margin-top:6px">Last backup: '+(S.lastBk?esc(S.lastBk):"never")+'</div></div><div class="tbl" style="margin-top:10px"><table>'+[["Credit customers",n(S.c)],["Invoices",n(S.inv)],["Stock items",n(S.items)],["Suppliers",n(S.sup)],["Book entries",n(S.bk)],["Nozzles",n(S.nozzles)],["Tanks",n(S.tanks)]].map(function(r){return '<tr><td>'+r[0]+'</td><td class="r">'+r[1]+'</td></tr>'}).join("")+'</table></div><div class="btns" style="margin-top:12px"><button onclick="doBackup()">Back up to file</button><button class="ghost" onclick="showBk()">Show backup text</button><button class="ghost" onclick="restForm()">Restore</button></div>'}
 A.innerHTML=h}
 function saveBizSetup(){var nm=(v("bz1")||"").trim(),ad=(v("bz2")||"").trim(),g=(v("bz3")||"").trim().toUpperCase();if(!nm)return er("Enter the pump name.");if(g&&g.length!=15)return er("GSTIN must be 15 characters (or leave blank).");S.biz={name:nm,addr:ad,gst:g};save();toast("Business details saved.");renderSetup()}
 function nozEdit(id){var n=(id&&id!="0")?S.nozzles.filter(function(x){return String(x.id)==String(id)})[0]:{name:"",fuel:FUELS[0],tank_id:"",active:true,open:""};
-openM('<h2>'+((id&&id!="0")?'Edit nozzle':'Add nozzle')+'</h2><label>Name<input id="n1" placeholder="e.g. Nozzle 1 (HSD East)" value="'+esc(n.name)+'"></label><label>Fuel<select id="n2">'+FUELS.map(function(f){return '<option'+(f==n.fuel?' selected':'')+'>'+f+'</option>'}).join("")+'</select></label><label>Tank<select id="n3"><option value="">No tank linked</option>'+S.tanks.map(function(t){return '<option value="'+t.id+'"'+(n.tank_id==t.id?' selected':'')+'>'+esc(t.name)+'</option>'}).join("")+'</select></label><label>Status<select id="n4"><option value="1"'+(n.active!==false?' selected':'')+'>Active</option><option value="0"'+(n.active===false?' selected':'')+'>Inactive</option></select></label><label>Opening meter reading (required for duties)<input id="n5" inputmode="decimal" placeholder="e.g. 0.00 or initial dispenser reading" value="'+(n.open==null?"":n.open)+'"><div class="sub" style="margin-top:3px">The opening totalizer meter reading on the pump dispenser. This reading is used for the nozzle\'s first shift duty.</div></label><div class="err" id="er"></div><div class="row" style="margin-top:12px"><button class="ghost" onclick="close()">Cancel</button><button onclick="saveNoz(\''+(id||0)+'\')">Save nozzle</button></div>')}
-function saveNoz(id){var nm=(v("n1")||"").trim(),op=(v("n5")||"").trim();if(!nm)return er("Enter a nozzle name.");if((!id||id=="0")&&op===""){return er("Enter the opening meter reading for this nozzle (e.g. 0.00).");}if(op!==""&&(isNaN(parseFloat(op))||parseFloat(op)<0)){return er("Opening reading must be a valid number (0 or higher).");}
-var parsedOpen=op===""?null:parseFloat(op);var o={name:nm,fuel:v("n2"),tank_id:v("n3"),active:v("n4")=="1",open:parsedOpen};if(id&&id!="0"){var target=S.nozzles.filter(function(x){return String(x.id)==String(id)})[0];if(target)Object.assign(target,o)}else{o.id=Date.now();S.nozzles.push(o)}save();close();toast((id&&id!="0")?"Nozzle updated.":"Nozzle added with opening reading "+(parsedOpen!=null?parsedOpen:"0")+".");renderSetup()}
-function saveOpen(){var vals=[];for(var i=0;i<S.nozzles.length;i++){var t=document.getElementById("op"+i).value.trim();if(t!==""&&(isNaN(parseFloat(t))||parseFloat(t)<0))return er("Check the reading for "+S.nozzles[i].name+". Must be 0 or higher.");vals.push(t===""?null:parseFloat(t))}vals.forEach(function(x,i){S.nozzles[i].open=x});save();toast("Opening readings saved.");setTimeout(renderSetup,400)}
+openM('<h2>'+((id&&id!="0")?'Edit nozzle':'Add nozzle')+'</h2><label>Name<input id="n1" placeholder="e.g. Nozzle 1 (HSD East)" value="'+esc(n.name)+'"></label><label>Fuel<select id="n2">'+FUELS.map(function(f){return '<option'+(f==n.fuel?' selected':'')+'>'+f+'</option>'}).join("")+'</select></label><label>Tank<select id="n3"><option value="">No tank linked</option>'+S.tanks.map(function(t){return '<option value="'+t.id+'"'+(n.tank_id==t.id?' selected':'')+'>'+esc(t.name)+'</option>'}).join("")+'</select></label><label>Status<select id="n4"><option value="1"'+(n.active!==false?' selected':'')+'>Active</option><option value="0"'+(n.active===false?' selected':'')+'>Inactive</option></select></label><label>Opening meter reading (up to two decimals, e.g. 0.00)<input id="n5" type="number" step="0.01" inputmode="decimal" placeholder="e.g. 0.00" value="'+(n.open==null?"":Number(n.open).toFixed(2))+'" oninput="var parts=this.value.split(\'.\');if(parts.length>1&&parts[1].length>2)this.value=parts[0]+\'.\'+parts[1].slice(0,2)" onchange="if(this.value!==\'\'&&!isNaN(parseFloat(this.value)))this.value=(Math.round(parseFloat(this.value)*100)/100).toFixed(2)"><div class="sub" style="margin-top:3px">The opening totalizer meter reading on the pump dispenser (up to two decimals). This reading is used for the nozzle\'s first shift duty.</div></label><div class="err" id="er"></div><div class="row" style="margin-top:12px"><button class="ghost" onclick="close()">Cancel</button><button onclick="saveNoz(\''+(id||0)+'\')">Save nozzle</button></div>')}
+function saveNoz(id){var nm=(v("n1")||"").trim(),op=(v("n5")||"").trim();if(!nm)return er("Enter a nozzle name.");if((!id||id=="0")&&op===""){return er("Enter the opening meter reading for this nozzle (e.g. 0.00).");}if(op!==""&&(isNaN(parseFloat(op))||parseFloat(op)<0)){return er("Opening reading must be a valid number (0 or higher).");}if(op!==""&&op.indexOf(".")!==-1&&op.split(".")[1].length>2){return er("Opening reading must be up to two decimals (e.g. "+parseFloat(op).toFixed(2)+").");}
+var parsedOpen=op===""?null:Math.round(parseFloat(op)*100)/100;var o={name:nm,fuel:v("n2"),tank_id:v("n3"),active:v("n4")=="1",open:parsedOpen};if(id&&id!="0"){var target=S.nozzles.filter(function(x){return String(x.id)==String(id)})[0];if(target)Object.assign(target,o)}else{o.id=Date.now();S.nozzles.push(o)}save();close();toast((id&&id!="0")?"Nozzle updated.":"Nozzle added with opening reading "+(parsedOpen!=null?parsedOpen.toFixed(2):"0.00")+".");renderSetup()}
+function saveOpen(){var vals=[];for(var i=0;i<S.nozzles.length;i++){var t=document.getElementById("op"+i).value.trim();if(t!==""&&(isNaN(parseFloat(t))||parseFloat(t)<0))return er("Check the reading for "+S.nozzles[i].name+". Must be 0 or higher.");if(t!==""&&t.indexOf(".")!==-1&&t.split(".")[1].length>2)return er("Reading for "+S.nozzles[i].name+" must be up to two decimals.");vals.push(t===""?null:Math.round(parseFloat(t)*100)/100)}vals.forEach(function(x,i){S.nozzles[i].open=x});save();toast("Opening readings saved.");setTimeout(renderSetup,400)}
 function rateAdd(f){openM('<h2>New rate for '+esc(f)+'</h2><label>Rate (\u20b9 per litre)<input id="r1" inputmode="decimal"></label><label>Applies from<input id="r2" type="date" value="'+bizToday()+'"></label><div class="err" id="er"></div><div class="row" style="margin-top:12px"><button class="ghost" onclick="close()">Cancel</button><button onclick="rateSave(\''+f.replace(/'/g,"\\'")+'\')">Save rate</button></div>')}
 function rateSave(f){var r=parseFloat(v("r1")),d=v("r2");if(!(r>0))return er("Enter the rate.");if(!d)return er("Choose the start date.");S.rates.push({id:Date.now(),fuel:f,rate:r,from:d});save();close();renderSetup()}
 function rateDel(id){ask("Delete this rate?",function(){S.rates=S.rates.filter(function(r){return r.id!=id});save();renderSetup()})}
@@ -1577,9 +3129,22 @@ function ubar(){return SRV&&ME?'<div class="row noprint" style="margin-bottom:10
 function boot(){api("GET","/api/me").then(function(m){SRV=true;ME=m.user;if(!ME){TOKEN="";try{localStorage.removeItem("petrol-token")}catch(e){}return authView(m.setup)}start()}).catch(function(){SRV=false;localStart()})}
 function start(){view=null;if(!ME)return authView(false);if(ME.role=="worker"){tab="wduty";return loadW()}tab="ledger";
 api("GET","/api/state").then(function(r){VER=r.ver;S=r.state||emptyS();["c","inv","items","sup","bk","nozzles","tanks","deliv","rates","expcats","paymodes"].forEach(function(k){S[k]=S[k]||[]});S.ob=S.ob||{Cash:0,Bank:0,UPI:0};S.biz=S.biz||{name:"",addr:"",gst:""};pullDuty(render)}).catch(function(e){badge("Could not load data: "+(e.error||"check your connection"));if(!S)S=emptyS();render()})}
+function fillAuth(m,p){var e1=document.getElementById("a1"),e2=document.getElementById("a2");if(e1)e1.value=m;if(e2)e2.value=p||"NewPass123";var erEl=document.getElementById("er");if(erEl)erEl.textContent=""}
+function clearLockout(){api("POST","/api/clear-lockout").then(function(){var erEl=document.getElementById("er");if(erEl)erEl.innerHTML='<span style="color:var(--ok);font-weight:600">Lockout reset! You can try logging in now.</span>';toast("Lockout reset. Try logging in now.")}).catch(function(){toast("Lockout reset.")})}
 function authView(setup){var h='<h1 style="font-size:22px;color:var(--ink);font-weight:800;margin:20px 0 4px">Petrol pump manager</h1><div class="sub">'+(setup?'Create the owner account to get started.':'Log in with your mobile number and password.')+'</div>'+(setup?'<label>Your name<input id="a0"></label>':'')+'<label>Mobile number<input id="a1" inputmode="tel" autocomplete="username"></label><label>Password<input id="a2" type="password" autocomplete="'+(setup?'new-password':'current-password')+'"></label><div class="err" id="er"></div><button style="width:100%;margin-top:6px" onclick="doAuth('+(setup?1:0)+')">'+(setup?'Create owner account':'Log in')+'</button>';
+if(!setup){
+h+='<div style="margin-top:16px;padding:12px;background:var(--card);border:1px solid var(--line);border-radius:10px">';
+h+='<div style="font-size:12px;font-weight:700;color:var(--mute);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">Quick Login (Password: NewPass123)</div>';
+h+='<div style="display:flex;flex-direction:column;gap:6px">';
+h+='<button type="button" class="ghost" style="text-align:left;font-size:13px;padding:7px 10px;display:flex;justify-content:space-between;align-items:center" onclick="fillAuth(\'9422556644\',\'NewPass123\')"><span><b>Sarita More</b> (Owner)</span><span style="font-size:12px;color:var(--mute)">9422556644 &rarr;</span></button>';
+h+='<button type="button" class="ghost" style="text-align:left;font-size:13px;padding:7px 10px;display:flex;justify-content:space-between;align-items:center" onclick="fillAuth(\'9075395587\',\'NewPass123\')"><span><b>Kapane</b> (Manager)</span><span style="font-size:12px;color:var(--mute)">9075395587 &rarr;</span></button>';
+h+='<button type="button" class="ghost" style="text-align:left;font-size:13px;padding:7px 10px;display:flex;justify-content:space-between;align-items:center" onclick="fillAuth(\'7387251048\',\'NewPass123\')"><span><b>Vikram</b> (Worker)</span><span style="font-size:12px;color:var(--mute)">7387251048 &rarr;</span></button>';
+h+='</div>';
+h+='<div style="margin-top:10px;text-align:center"><button type="button" class="ghost" style="font-size:12px;padding:4px 10px;color:var(--mute)" onclick="clearLockout()">Reset Lockout / Unlock</button></div>';
+h+='</div>';
+}
 document.getElementById("app").innerHTML=h;document.getElementById("a2").onkeydown=function(e){if(e.key=="Enter")doAuth(setup?1:0)}}
-function doAuth(setup){var b={mobile:v("a1"),password:document.getElementById("a2").value};if(setup)b.name=v("a0");api("POST",setup?"/api/setup":"/api/login",b).then(function(r){if(r.token){TOKEN=r.token;try{localStorage.setItem("petrol-token",TOKEN)}catch(e){}}ME=r.user;start()}).catch(function(e){er(e.error||"Could not log in. Check your connection.")})}
+function doAuth(setup){var b={mobile:v("a1"),password:document.getElementById("a2").value};if(setup)b.name=v("a0");api("POST",setup?"/api/setup":"/api/login",b).then(function(r){if(r.token){TOKEN=r.token;try{localStorage.setItem("petrol-token",TOKEN)}catch(e){}}ME=r.user;start()}).catch(function(e){var msg=(e&&e.error)||"Could not log in. Check your connection.";var erEl=document.getElementById("er");if(erEl){if(msg.indexOf("attempts")!==-1||msg.indexOf("Wait")!==-1||msg.indexOf("15 minutes")!==-1){erEl.innerHTML=esc(msg)+'<div style="margin-top:6px"><button type="button" class="ghost" style="padding:4px 10px;font-size:12px;color:var(--ok);border-color:var(--ok)" onclick="clearLockout()">Unlock Account Now</button></div>'}else{erEl.textContent=msg}}})}
 function logout(){api("POST","/api/logout").then(function(){TOKEN="";try{localStorage.removeItem("petrol-token")}catch(e){}location.reload()}).catch(function(){TOKEN="";try{localStorage.removeItem("petrol-token")}catch(e){}location.reload()})}
 function pwForm(){openM('<h2>Change password</h2><label>Current password<input id="p1" type="password"></label><label>New password (6+ characters)<input id="p2" type="password"></label><div class="err" id="er"></div><div class="row"><button class="ghost" onclick="close()">Cancel</button><button onclick="savePw()">Change password</button></div>')}
 function savePw(){api("POST","/api/password",{old:document.getElementById("p1").value,password:document.getElementById("p2").value}).then(function(){openM('<h2>Password changed</h2><div class="btns"><button onclick="close()">Close</button></div>')}).catch(function(e){er(e.error||"Could not change the password.")})}
@@ -1595,6 +3160,10 @@ var btn=document.getElementById("btnCreditSave");if(btn){btn.disabled=true;btn.t
 var c=CL.filter(function(x){return x.id==b.cust_id})[0],go=function(){api("POST","/api/credit-sales",b).then(function(res){toast("Credit sale of "+inr(a)+(res&&res.pending?" (waiting approval)":"")+" saved.");loadCredit()}).catch(function(e){if(btn){btn.disabled=false;btn.textContent="Save credit sale";}er(e.error||"Could not save. Check your connection.")})};
 if(c&&a>c.available){if(btn){btn.disabled=false;btn.textContent="Save credit sale";}return ask("This is more than the customer's available credit ("+inr(c.available)+"). It will be sent to a manager for approval. Continue?",go);}go()}
 function renderTeam(){tab="setup";SU="team";renderSetup()}
+var TEAM_USERS=[];
+function editUserForm(id){var u=(window.TEAM_USERS||[]).filter(function(x){return x.id==id})[0];if(!u){api("GET","/api/users").then(function(U){TEAM_USERS=U;var found=U.filter(function(x){return x.id==id})[0];if(found)showEditUserModal(found)}).catch(function(e){toast(e.error||"Could not load user.")});return}showEditUserModal(u)}
+function showEditUserModal(u){var isOwner=(u.role==="owner");var canChangeRole=(ME&&ME.role==="owner"&&!isOwner);var roleField='';if(canChangeRole){roleField='<label>Role<select id="eu3"><option value="worker"'+(u.role=="worker"?' selected':'')+'>Worker</option><option value="manager"'+(u.role=="manager"?' selected':'')+'>Manager</option></select></label>'}else{roleField='<label>Role<input value="'+esc(u.role)+'" disabled style="background:var(--bg)"></label>'}var statusField='';if(isOwner){statusField='<label>Status<input value="Active (Owner cannot be deactivated)" disabled style="background:var(--bg)"></label>'}else{statusField='<label>Status<select id="eu4"><option value="1"'+(u.active?' selected':'')+'>Active</option><option value="0"'+(!u.active?' selected':'')+'>Inactive</option></select></label>'}var h='<h2>Edit user</h2><div class="sub">Update profile details for '+esc(u.name)+'</div><label>Name<input id="eu1" value="'+esc(u.name)+'"></label><label>Mobile number (used to log in)<input id="eu2" inputmode="tel" value="'+esc(u.mobile)+'"></label>'+roleField+statusField+'<label>New password (optional)<input id="eu5" type="password" placeholder="Leave blank to keep current password" autocomplete="new-password"></label><div class="err" id="er"></div><div class="row" style="margin-top:14px"><button class="ghost" onclick="closeM()">Cancel</button><button onclick="saveEditUser('+u.id+')">Save changes</button></div>';openM(h)}
+function saveEditUser(id){var nm=v("eu1"),mob=v("eu2").replace(/\D/g,"").slice(-10),pw=(document.getElementById("eu5")||{}).value||"";var roleEl=document.getElementById("eu3"),actEl=document.getElementById("eu4");if(!nm)return er("Enter a name (up to 60 characters).");if(mob.length!==10)return er("Enter a 10-digit mobile number.");if(pw&&pw.length<6)return er("Password must be at least 6 characters.");var payload={name:nm,mobile:mob};if(roleEl)payload.role=roleEl.value;if(actEl)payload.active=actEl.value==="1";if(pw)payload.password=pw;api("PATCH","/api/users/"+id,payload).then(function(){if(ME&&ME.id===id){ME.name=nm;ME.mobile=mob;if(payload.role)ME.role=payload.role}closeM();toast("User updated successfully.");renderTeam()}).catch(function(e){er(e.error||"Could not update user.")})}
 function userForm(){openM('<h2>Add user</h2><label>Name<input id="u1"></label><label>Mobile number (used to log in)<input id="u2" inputmode="tel"></label><label>Role<select id="u3"><option value="worker">Worker</option>'+(ME.role=="owner"?'<option value="manager">Manager</option>':'')+'</select></label><label>Password (6+ characters)<input id="u4" autocomplete="off"></label><div class="err" id="er"></div><div class="row"><button class="ghost" onclick="close()">Cancel</button><button onclick="saveUser()">Save user</button></div>')}
 function saveUser(){api("POST","/api/users",{name:v("u1"),mobile:v("u2"),role:v("u3"),password:document.getElementById("u4").value}).then(function(){close();renderTeam()}).catch(function(e){er(e.error||"Could not save.")})}
 function userAct(id,w){api("PATCH","/api/users/"+id,{active:w=="on"}).then(renderTeam).catch(function(e){badge(e.error||"Could not update the user.")})}

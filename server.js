@@ -5,6 +5,19 @@ const { openDatabase } = require("./sqlite-adapter");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const path = require("path");
+const { GoogleGenAI, Type } = require("@google/genai");
+
+let aiClient = null;
+if (process.env.GEMINI_API_KEY) {
+  aiClient = new GoogleGenAI({
+    apiKey: process.env.GEMINI_API_KEY,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      }
+    }
+  });
+}
 
 const PORT = 3000;
 const HOST = process.env.HOST || "0.0.0.0";
@@ -75,7 +88,7 @@ app.use((q, s, n) => {
     "Referrer-Policy": "same-origin",
     "Cache-Control": "no-store",
     "Content-Security-Policy":
-      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'",
+      "default-src 'self'; script-src 'self' 'unsafe-inline' blob:; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; connect-src 'self' blob:",
   });
   n();
 });
@@ -134,10 +147,15 @@ function checkUser(name, m, pw) {
   return null;
 }
 
-// Login throttle: 5 wrong tries per IP + mobile locks that pair for 15 minutes.
+// Login throttle: 5 wrong tries per IP + mobile locks that pair for 30 seconds (clearable).
 const fails = new Map();
-const blocked = (k) => { const f = fails.get(k); return f && f.n >= 5 && Date.now() - f.t < 15 * 60e3; };
-const addFail = (k) => { const f = fails.get(k) || { n: 0, t: 0 }; f.n = Date.now() - f.t > 15 * 60e3 ? 1 : f.n + 1; f.t = Date.now(); fails.set(k, f); };
+const blocked = (k) => { const f = fails.get(k); return f && f.n >= 5 && Date.now() - f.t < 30 * 1000; };
+const addFail = (k) => { const f = fails.get(k) || { n: 0, t: 0 }; f.n = Date.now() - f.t > 30 * 1000 ? 1 : f.n + 1; f.t = Date.now(); fails.set(k, f); };
+
+app.post("/api/clear-lockout", (q, s) => {
+  fails.clear();
+  s.json({ ok: true, message: "Lockout cleared successfully." });
+});
 
 app.get("/api/me", (q, s) => {
   const u = getUser(q);
@@ -154,7 +172,7 @@ app.post("/api/setup", (q, s) => {
 });
 app.post("/api/login", (q, s) => {
   const m = mob(q.body && q.body.mobile), p = String((q.body && q.body.password) || ""), k = q.ip + "|" + m;
-  if (blocked(k)) return s.status(429).json({ error: "Too many wrong attempts. Try again in 15 minutes." });
+  if (blocked(k)) return s.status(429).json({ error: "Too many wrong attempts. Wait 30 seconds or click 'Unlock Now'." });
   const u = db.prepare("select * from users where mobile=?").get(m);
   if (!u || !u.active || !bcrypt.compareSync(p, u.hash)) { addFail(k); return s.status(401).json({ error: "Wrong mobile number or password." }); }
   fails.delete(k);
@@ -197,19 +215,39 @@ app.patch("/api/users/:id", need("owner", "manager"), (q, s) => {
   const id = +q.params.id, u = db.prepare("select * from users where id=?").get(id);
   if (!u) return s.status(404).json({ error: "User not found." });
   if (q.user.role === "manager" && u.role !== "worker") return s.status(403).json({ error: "Managers can change workers only." });
-  const { active, password, name } = q.body || {};
+  const { active, password, name, mobile, role } = q.body || {};
   if (active !== undefined) {
-    if (u.id === q.user.id) return s.status(400).json({ error: "You cannot deactivate your own account." });
+    if (u.id === q.user.id && !active) return s.status(400).json({ error: "You cannot deactivate your own account." });
     db.prepare("update users set active=? where id=?").run(active ? 1 : 0, id);
     if (!active) db.prepare("delete from sessions where user_id=?").run(id);
   }
-  if (password !== undefined) {
+  if (password !== undefined && String(password).trim() !== "") {
     if (typeof password !== "string" || password.length < 6 || password.length > 100) return s.status(400).json({ error: "Password must be at least 6 characters." });
     db.prepare("update users set hash=? where id=?").run(bcrypt.hashSync(password, 10), id);
-    db.prepare("delete from sessions where user_id=?").run(id);
+    const curToken = getToken(q);
+    const keep = (u.id === q.user.id && curToken) ? hs(curToken) : "";
+    db.prepare("delete from sessions where user_id=? and token<>?").run(id, keep);
   }
-  if (name !== undefined && String(name).trim()) db.prepare("update users set name=? where id=?").run(String(name).trim().slice(0, 60), id);
-  s.json({ ok: true });
+  if (name !== undefined) {
+    const trimmed = String(name).trim();
+    if (!trimmed || trimmed.length > 60) return s.status(400).json({ error: "Enter a name (up to 60 characters)." });
+    db.prepare("update users set name=? where id=?").run(trimmed.slice(0, 60), id);
+  }
+  if (mobile !== undefined) {
+    const m = mob(mobile);
+    if (m.length !== 10) return s.status(400).json({ error: "Enter a 10-digit mobile number." });
+    const exists = db.prepare("select 1 from users where mobile=? and id<>?").get(m, id);
+    if (exists) return s.status(409).json({ error: "This mobile number is already registered." });
+    db.prepare("update users set mobile=? where id=?").run(m, id);
+  }
+  if (role !== undefined && role !== u.role) {
+    if (q.user.role !== "owner") return s.status(403).json({ error: "Only the owner can change user roles." });
+    if (u.role === "owner") return s.status(400).json({ error: "Owner role cannot be changed." });
+    if (!["manager", "worker"].includes(role)) return s.status(400).json({ error: "Choose manager or worker." });
+    db.prepare("update users set role=? where id=?").run(role, id);
+  }
+  const updated = db.prepare("select id,name,mobile,role,active from users where id=?").get(id);
+  s.json({ ok: true, user: updated });
 });
 
 // ---- Shared business data (owner and manager)
@@ -360,8 +398,11 @@ const dayStatus = (d) => (db.prepare("select status from days where d=?").get(d)
 function detail(d) {
   const st = stateNow(), nm = nozzleMap(st);
   const lines = db.prepare("select * from duty_lines where duty_id=? order by id").all(d.id).map((l) => {
-    const lt = l.closing == null ? 0 : r2(l.closing - l.opening - l.testing), n = nm[l.nozzle_id] || {};
-    return { ...l, nozzle: n.name || "Nozzle", fuel: n.fuel || "", litres: lt, amount: r2(lt * (l.rate || 0)) };
+    const opening = l.opening == null ? null : r2(l.opening);
+    const closing = l.closing == null ? null : r2(l.closing);
+    const testing = l.testing == null ? 0 : r2(l.testing);
+    const lt = closing == null ? 0 : r2(closing - (opening || 0) - testing), n = nm[l.nozzle_id] || {};
+    return { ...l, opening, closing, testing, nozzle: n.name || "Nozzle", fuel: n.fuel || "", litres: lt, amount: r2(lt * (l.rate || 0)) };
   });
   const items = db.prepare("select * from duty_items where duty_id=? order by id").all(d.id).map((i) => ({ ...i, amount: r2(i.qty * i.price) }));
   const expenses = db.prepare("select * from duty_expenses where duty_id=? order by id").all(d.id);
@@ -392,7 +433,13 @@ function detail(d) {
 function saveDuty(id, b, strict, full) {
   const st = stateNow(), nm = nozzleMap(st), cur = db.prepare("select * from duty_lines where duty_id=? order by id").all(id);
   const src = Array.isArray(b.lines) ? b.lines : [], ups = [];
-  const rd = (v) => (v === "" || v === null || v === undefined ? null : num(v));
+  const rd = (v) => (v === "" || v === null || v === undefined ? null : r2(num(v)));
+  const check2dec = (v, label) => {
+    if (v !== "" && v !== null && v !== undefined && typeof v === "string" && v.indexOf(".") !== -1 && v.split(".")[1].length > 2) {
+      return `${label} must be up to two decimals.`;
+    }
+    return null;
+  };
   for (const row of cur) {
     const l = src.find((x) => String(x.nozzle_id) === row.nozzle_id) || {}, nn = (nm[row.nozzle_id] || {}).name || "Nozzle";
     const o = { id: row.id, opening: row.opening, rate: row.rate, closing: row.closing, testing: row.testing };
@@ -408,6 +455,18 @@ function saveDuty(id, b, strict, full) {
       if (Number.isNaN(o.rate)) o.rate = row.rate;
     }
     if (strict) {
+      if (l.closing !== undefined) {
+        const err = check2dec(l.closing, `Closing reading for ${nn}`);
+        if (err) return err;
+      }
+      if (l.opening !== undefined) {
+        const err = check2dec(l.opening, `Opening reading for ${nn}`);
+        if (err) return err;
+      }
+      if (l.testing !== undefined) {
+        const err = check2dec(l.testing, `Testing litres for ${nn}`);
+        if (err) return err;
+      }
       if (o.opening == null) return `Enter the opening reading for ${nn}.`;
       if (o.closing == null) return `Enter the closing reading for ${nn}.`;
       if (o.rate == null || o.rate <= 0) return `The rate for ${nn} is missing. Ask the owner to set it in Pump setup.`;
@@ -506,7 +565,7 @@ app.get("/api/assign-info", need("owner", "manager"), (q, s) => {
   const st = stateNow(), d = bizDate();
   const busy = {};
   db.prepare("select dl.nozzle_id n, u.name w from duty_lines dl join duties du on du.id=dl.duty_id join users u on u.id=du.worker_id where du.status in ('open','submitted')").all().forEach((x) => (busy[x.n] = x.w));
-  const workers = db.prepare("select id,name from users where role='worker' and active=1 order by name").all();
+  const workers = db.prepare("select id,name,role from users where active=1 and role='worker' order by name").all();
   const nozzles = (st.nozzles || []).filter((n) => n.active !== false).map((n) => {
     const lc = lastClose(n.id);
     return { id: n.id, name: n.name, fuel: n.fuel, busy_by: busy[String(n.id)] || null, rate: rateFor(st, n.fuel, d), opening: lc.c ?? (n.open ?? null) };
@@ -550,7 +609,10 @@ app.get("/api/worker/assign-info", need(), (q, s) => {
   if (open) {
     return s.json({ has_open: true, duty: detail(open), date: d, day: dayStatus(d) });
   }
-  const lastDuty = db.prepare("select * from duties where worker_id=? and status in ('closed', 'submitted') order by id desc limit 1").get(q.user.id);
+  let lastDuty = db.prepare("select * from duties where worker_id=? and status in ('closed', 'submitted') order by id desc limit 1").get(q.user.id);
+  if (!lastDuty) {
+    lastDuty = db.prepare("select * from duties where status in ('closed', 'submitted') order by id desc limit 1").get();
+  }
   if (!lastDuty) {
     return s.json({ has_open: false, latest_closed: null, date: d, day: dayStatus(d) });
   }
@@ -572,7 +634,12 @@ app.get("/api/worker/assign-info", need(), (q, s) => {
       active: n.active !== false
     };
   });
-  const colleagues = db.prepare("select id, name from users where role='worker' and active=1 and id<>? order by name").all(q.user.id);
+  const colleagues = db.prepare("select id, name, role from users where active=1 and role='worker' order by name").all().map((w) => ({
+    id: w.id,
+    name: w.name,
+    role: w.role,
+    busy: !!openDuty(w.id)
+  }));
   s.json({
     has_open: false,
     latest_closed: {
@@ -592,39 +659,55 @@ app.get("/api/worker/assign-info", need(), (q, s) => {
 });
 
 app.post("/api/worker/assign-duty", need(), (q, s) => {
-  const { shift, target_worker_id, note } = q.body || {}, st = stateNow(), d = bizDate();
-  let tw = q.user;
-  const isHandover = target_worker_id && String(target_worker_id) !== String(q.user.id);
-  if (isHandover) {
-    const found = db.prepare("select * from users where id=? and role='worker' and active=1").get(+target_worker_id);
-    if (!found) return s.status(400).json({ error: "Selected worker for handover is not found or inactive." });
-    tw = found;
-  }
-  if (openDuty(tw.id)) {
-    return s.status(409).json({ error: isHandover ? `${tw.name} already has an active duty in progress.` : "You already have an active duty in progress." });
-  }
+  const { shift, target_worker_id, nozzle_assignments, note } = q.body || {};
+  const st = stateNow(), d = bizDate();
+
   if (!SHIFTS.includes(shift)) {
     return s.status(400).json({ error: "Choose a shift (Morning, Evening, or Night)." });
   }
   if (dayStatus(d) !== "open") {
     return s.status(409).json({ error: "Today's business day is already closed. Ask the owner to reopen it." });
   }
-  const lastDuty = db.prepare("select * from duties where worker_id=? and status in ('closed', 'submitted') order by id desc limit 1").get(q.user.id);
+
+  let lastDuty = db.prepare("select * from duties where worker_id=? and status in ('closed', 'submitted') order by id desc limit 1").get(q.user.id);
+  if (!lastDuty) {
+    lastDuty = db.prepare("select * from duties where status in ('closed', 'submitted') order by id desc limit 1").get();
+  }
   if (!lastDuty) {
     return s.status(400).json({ error: "No closed duty found to assign from. Your manager must assign your first duty." });
   }
+
   const nm = nozzleMap(st);
   const prevLines = db.prepare("select * from duty_lines where duty_id=? order by id").all(lastDuty.id);
   if (!prevLines.length) {
     return s.status(400).json({ error: "No nozzles found in your latest closed duty." });
   }
-  const newLines = [];
-  for (const l of prevLines) {
-    const n = nm[l.nozzle_id];
-    if (!n || n.active === false) {
-      return s.status(400).json({ error: `Nozzle ${n ? n.name : l.nozzle_id} is no longer active.` });
+
+  // Determine assignments: support both multi-nozzle mapping and single target worker
+  let assignments = [];
+  if (Array.isArray(nozzle_assignments) && nozzle_assignments.length > 0) {
+    assignments = nozzle_assignments;
+  } else if (target_worker_id) {
+    assignments = prevLines.map((l) => ({ nozzle_id: l.nozzle_id, target_worker_id }));
+  } else {
+    return s.status(400).json({ error: "Please select incoming staff for handover." });
+  }
+
+  // Group by target worker
+  const byWorker = {};
+  for (const asgn of assignments) {
+    const nId = +asgn.nozzle_id;
+    const wId = +(asgn.target_worker_id || target_worker_id || q.user.id);
+
+    const l = prevLines.find((pl) => pl.nozzle_id === nId);
+    if (!l) {
+      return s.status(400).json({ error: `Nozzle ${nId} was not part of your shift duty.` });
     }
-    const busy = db.prepare("select u.name w from duty_lines dl join duties du on du.id=dl.duty_id join users u on u.id=du.worker_id where dl.nozzle_id=? and du.status='open' limit 1").get(l.nozzle_id);
+    const n = nm[nId];
+    if (!n || n.active === false) {
+      return s.status(400).json({ error: `Nozzle ${n ? n.name : nId} is no longer active.` });
+    }
+    const busy = db.prepare("select u.name w from duty_lines dl join duties du on du.id=dl.duty_id join users u on u.id=du.worker_id where dl.nozzle_id=? and du.status='open' limit 1").get(nId);
     if (busy) {
       return s.status(409).json({ error: `${n.name} is currently open with ${busy.w}.` });
     }
@@ -632,25 +715,59 @@ app.post("/api/worker/assign-duty", need(), (q, s) => {
     if (rate == null) {
       return s.status(400).json({ error: `Set the ${n.fuel} rate in Pump setup first.` });
     }
-    const opening = l.closing != null ? l.closing : (lastClose(l.nozzle_id).c ?? (n.open ?? null));
+    const opening = l.closing != null ? l.closing : (lastClose(nId).c ?? (n.open ?? null));
     if (opening == null) {
       return s.status(400).json({ error: `Set the opening reading for ${n.name} in Pump setup first.` });
     }
-    newLines.push({ id: l.nozzle_id, opening, rate });
-  }
-  const customNote = String(note || "").trim();
-  const dutyNote = isHandover ? (customNote ? `Handover from ${q.user.name}: ${customNote}` : `Handover from ${q.user.name}`) : customNote;
 
-  const dutyId = db.transaction(() => {
-    const did = db.prepare("insert into duties(worker_id,d,shift,started,assigned_by,note) values(?,?,?,?,?,?)")
-      .run(tw.id, d, shift, now(), q.user.id, dutyNote).lastInsertRowid;
-    newLines.forEach((line) => {
-      db.prepare("insert into duty_lines(duty_id,nozzle_id,opening,rate) values(?,?,?,?)")
-        .run(did, line.id, line.opening, line.rate);
+    if (!byWorker[wId]) {
+      const tw = db.prepare("select * from users where id=? and active=1 and role='worker'").get(wId);
+      if (!tw) {
+        return s.status(400).json({ error: `Selected worker for nozzle ${n.name} is not found, inactive, or not a worker.` });
+      }
+      if (openDuty(tw.id)) {
+        return s.status(409).json({ error: String(tw.id) === String(q.user.id) ? "You already have an active duty in progress." : `${tw.name} already has an active duty in progress.` });
+      }
+      byWorker[wId] = { worker: tw, lines: [] };
+    }
+
+    byWorker[wId].lines.push({ id: nId, name: n.name, opening, rate });
+  }
+
+  const customNote = String(note || "").trim();
+  const created = [];
+
+  db.transaction(() => {
+    Object.values(byWorker).forEach(({ worker: tw, lines }) => {
+      const isHandover = String(tw.id) !== String(q.user.id);
+      const dutyNote = isHandover ? (customNote ? `Handover from ${q.user.name}: ${customNote}` : `Handover from ${q.user.name}`) : customNote;
+
+      const did = db.prepare("insert into duties(worker_id,d,shift,started,assigned_by,note) values(?,?,?,?,?,?)")
+        .run(tw.id, d, shift, now(), q.user.id, dutyNote).lastInsertRowid;
+
+      lines.forEach((line) => {
+        db.prepare("insert into duty_lines(duty_id,nozzle_id,opening,rate) values(?,?,?,?)")
+          .run(did, line.id, line.opening, line.rate);
+      });
+
+      created.push({
+        id: did,
+        worker_id: tw.id,
+        worker_name: tw.name,
+        nozzles: lines.map((l) => l.name),
+        nozzle_count: lines.length,
+      });
     });
-    return did;
   })();
-  s.json({ id: dutyId, target_name: tw.name, is_handover: isHandover, ok: true });
+
+  const workerSummary = created.map((c) => `${c.worker_name} (${c.nozzles.join(", ")})`).join(", ");
+  s.json({
+    ok: true,
+    created,
+    target_name: created.length === 1 ? created[0].worker_name : `${created.length} staff members`,
+    worker_summary: workerSummary,
+    count: created.length,
+  });
 });
 app.delete("/api/duties/:id", need("owner", "manager"), (q, s) => {
   const r = db.transaction(() => {
@@ -682,10 +799,23 @@ app.get("/api/duties/:id", need("owner", "manager"), (q, s) => {
 app.put("/api/duties/:id", need("owner", "manager"), (q, s) => {
   const d = db.prepare("select * from duties where id=? and status='submitted'").get(+q.params.id);
   if (!d) return s.status(404).json({ error: "Only duties waiting to be closed can be changed." });
+  if (q.user.role === "manager") {
+    return s.status(403).json({ error: "Managers can only review duties. If changes are needed, please send the duty back to the worker." });
+  }
   const isStrict = q.query.strict === "1" || (q.body && q.body.strict === true);
   const e = saveDuty(d.id, q.body || {}, isStrict, true);
   if (e) return s.status(400).json({ error: e });
   s.json({ ok: true });
+});
+app.post("/api/duties/:id/send-back", need("owner", "manager"), (q, s) => {
+  const d = db.prepare("select * from duties where id=? and status='submitted'").get(+q.params.id);
+  if (!d) return s.status(404).json({ error: "This duty is not waiting for review." });
+  const w = db.prepare("select name from users where id=?").get(d.worker_id);
+  const reason = String((q.body && q.body.note) || "").trim();
+  const feedback = reason ? `[Sent back by ${q.user.name}: ${reason}]` : `[Sent back by ${q.user.name} for corrections]`;
+  const newNote = d.note ? `${d.note} · ${feedback}` : feedback;
+  db.prepare("update duties set status='open', submitted=null, note=? where id=?").run(newNote, d.id);
+  s.json({ ok: true, message: `Duty sent back to ${w ? w.name : "worker"} for corrections.` });
 });
 app.post("/api/duties/:id/close", need("owner", "manager"), (q, s) => {
   const out = db.transaction(() => {
@@ -749,6 +879,536 @@ app.get("/api/day-report", need("owner", "manager"), (q, s) => {
   Object.keys(T).forEach((k) => (T[k] = r2(T[k])));
   const dd = db.prepare("select * from days where d=?").get(d) || { status: "open" };
   s.json({ d, day: dd, modes: allModes(st).map((m) => ({ key: m.key, name: m.name })), duties, summary: { ...T, total: r2(T.sales + T.lube), fuel, shop, exps, pay } });
+});
+
+// ---- Fuel sales & expense analytics
+app.get("/api/analytics", need("owner", "manager"), (q, s) => {
+  const st = stateNow(), nm = nozzleMap(st);
+  const from = validDay(q.query.from) ? q.query.from : "";
+  const to = validDay(q.query.to) ? q.query.to : "";
+
+  let sqlDuties = "select * from duties where status in ('closed', 'submitted')";
+  const p = [];
+  if (from) { sqlDuties += " and d >= ?"; p.push(from); }
+  if (to) { sqlDuties += " and d <= ?"; p.push(to); }
+  sqlDuties += " order by d asc, id asc";
+
+  const duties = db.prepare(sqlDuties).all(...p);
+  const dutyIds = duties.map((d) => d.id);
+
+  const dailyMap = {};
+  const monthlyMap = {};
+  const fuelTotals = {};
+  const expCategories = {};
+  let totalLitres = 0;
+  let totalRevenue = 0;
+  let totalShiftExp = 0;
+
+  const linesByDuty = {};
+  const expsByDuty = {};
+
+  if (dutyIds.length > 0) {
+    const dlRows = db.prepare(`select * from duty_lines where duty_id in (${dutyIds.map(() => "?").join(",")}) order by id`).all(...dutyIds);
+    dlRows.forEach((l) => {
+      linesByDuty[l.duty_id] = linesByDuty[l.duty_id] || [];
+      linesByDuty[l.duty_id].push(l);
+    });
+
+    const deRows = db.prepare(`select * from duty_expenses where duty_id in (${dutyIds.map(() => "?").join(",")}) order by id`).all(...dutyIds);
+    deRows.forEach((e) => {
+      expsByDuty[e.duty_id] = expsByDuty[e.duty_id] || [];
+      expsByDuty[e.duty_id].push(e);
+    });
+  }
+
+  duties.forEach((d) => {
+    const day = d.d;
+    const month = day.slice(0, 7);
+
+    if (!dailyMap[day]) {
+      dailyMap[day] = { date: day, litres: 0, revenue: 0, expenses: 0, byFuel: {}, dutiesCount: 0 };
+    }
+    if (!monthlyMap[month]) {
+      monthlyMap[month] = { month, litres: 0, revenue: 0, expenses: 0, byFuel: {}, days: new Set(), dutiesCount: 0 };
+    }
+    dailyMap[day].dutiesCount++;
+    monthlyMap[month].dutiesCount++;
+    monthlyMap[month].days.add(day);
+
+    const dLines = linesByDuty[d.id] || [];
+    dLines.forEach((l) => {
+      const op = l.opening == null ? 0 : l.opening;
+      const cl = l.closing == null ? 0 : l.closing;
+      const tst = l.testing == null ? 0 : l.testing;
+      const lt = r2(Math.max(0, cl - op - tst));
+      const fuelName = (nm[l.nozzle_id] && nm[l.nozzle_id].fuel) || "Fuel";
+      const amt = r2(lt * (l.rate || 0));
+
+      if (lt > 0 || amt > 0) {
+        totalLitres += lt;
+        totalRevenue += amt;
+
+        dailyMap[day].litres = r2(dailyMap[day].litres + lt);
+        dailyMap[day].revenue = r2(dailyMap[day].revenue + amt);
+        if (!dailyMap[day].byFuel[fuelName]) dailyMap[day].byFuel[fuelName] = { litres: 0, revenue: 0 };
+        dailyMap[day].byFuel[fuelName].litres = r2(dailyMap[day].byFuel[fuelName].litres + lt);
+        dailyMap[day].byFuel[fuelName].revenue = r2(dailyMap[day].byFuel[fuelName].revenue + amt);
+
+        monthlyMap[month].litres = r2(monthlyMap[month].litres + lt);
+        monthlyMap[month].revenue = r2(monthlyMap[month].revenue + amt);
+        if (!monthlyMap[month].byFuel[fuelName]) monthlyMap[month].byFuel[fuelName] = { litres: 0, revenue: 0 };
+        monthlyMap[month].byFuel[fuelName].litres = r2(monthlyMap[month].byFuel[fuelName].litres + lt);
+        monthlyMap[month].byFuel[fuelName].revenue = r2(monthlyMap[month].byFuel[fuelName].revenue + amt);
+
+        if (!fuelTotals[fuelName]) fuelTotals[fuelName] = { fuel: fuelName, litres: 0, revenue: 0 };
+        fuelTotals[fuelName].litres = r2(fuelTotals[fuelName].litres + lt);
+        fuelTotals[fuelName].revenue = r2(fuelTotals[fuelName].revenue + amt);
+      }
+    });
+
+    const dExps = expsByDuty[d.id] || [];
+    dExps.forEach((e) => {
+      const cat = e.cat || "Other";
+      const amt = r2(e.amount || 0);
+      if (amt > 0) {
+        totalShiftExp += amt;
+        dailyMap[day].expenses = r2(dailyMap[day].expenses + amt);
+        monthlyMap[month].expenses = r2(monthlyMap[month].expenses + amt);
+
+        if (!expCategories[cat]) expCategories[cat] = { category: cat, amount: 0, count: 0, source: "shift" };
+        expCategories[cat].amount = r2(expCategories[cat].amount + amt);
+        expCategories[cat].count++;
+      }
+    });
+  });
+
+  let totalBookExp = 0;
+  (st.bk || []).forEach((b) => {
+    if (b.t === "out" && b.d) {
+      if ((!from || b.d >= from) && (!to || b.d <= to)) {
+        const cat = b.cat || "Other";
+        const amt = r2(b.a || 0);
+        const day = b.d;
+        const month = day.slice(0, 7);
+
+        totalBookExp += amt;
+        if (!dailyMap[day]) {
+          dailyMap[day] = { date: day, litres: 0, revenue: 0, expenses: 0, byFuel: {}, dutiesCount: 0 };
+        }
+        dailyMap[day].expenses = r2(dailyMap[day].expenses + amt);
+
+        if (!monthlyMap[month]) {
+          monthlyMap[month] = { month, litres: 0, revenue: 0, expenses: 0, byFuel: {}, days: new Set(), dutiesCount: 0 };
+        }
+        monthlyMap[month].expenses = r2(monthlyMap[month].expenses + amt);
+        monthlyMap[month].days.add(day);
+
+        if (!expCategories[cat]) {
+          expCategories[cat] = { category: cat, amount: 0, count: 0, source: "book" };
+        } else if (expCategories[cat].source === "shift") {
+          expCategories[cat].source = "both";
+        }
+        expCategories[cat].amount = r2(expCategories[cat].amount + amt);
+        expCategories[cat].count++;
+      }
+    }
+  });
+
+  const daily = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
+  const monthly = Object.values(monthlyMap)
+    .map((m) => ({
+      month: m.month,
+      litres: m.litres,
+      revenue: m.revenue,
+      expenses: m.expenses,
+      byFuel: m.byFuel,
+      daysCount: m.days.size,
+      dutiesCount: m.dutiesCount,
+    }))
+    .sort((a, b) => a.month.localeCompare(b.month));
+
+  const totalExpenses = r2(totalShiftExp + totalBookExp);
+  const totalDays = daily.length;
+
+  const fuelBreakdown = Object.values(fuelTotals)
+    .map((f) => ({
+      ...f,
+      litresPct: totalLitres > 0 ? r2((f.litres / totalLitres) * 100) : 0,
+      revPct: totalRevenue > 0 ? r2((f.revenue / totalRevenue) * 100) : 0,
+    }))
+    .sort((a, b) => b.litres - a.litres);
+
+  const expenseBreakdown = Object.values(expCategories)
+    .map((e) => ({
+      ...e,
+      percentage: totalExpenses > 0 ? r2((e.amount / totalExpenses) * 100) : 0,
+    }))
+    .sort((a, b) => b.amount - a.amount);
+
+  s.json({
+    summary: {
+      totalLitres: r2(totalLitres),
+      totalRevenue: r2(totalRevenue),
+      totalExpenses,
+      shiftExpenses: r2(totalShiftExp),
+      bookExpenses: r2(totalBookExp),
+      netFuelMargin: r2(totalRevenue - totalExpenses),
+      totalDays,
+      dutiesCount: duties.length,
+      avgDailyLitres: totalDays > 0 ? r2(totalLitres / totalDays) : 0,
+      avgDailyRevenue: totalDays > 0 ? r2(totalRevenue / totalDays) : 0,
+      avgDailyExpenses: totalDays > 0 ? r2(totalExpenses / totalDays) : 0,
+    },
+    daily,
+    monthly,
+    fuelBreakdown,
+    expenseBreakdown,
+    fuelTypes: fuelBreakdown.map((f) => f.fuel),
+  });
+});
+
+// ---- AI Forensic Audit for Operations, Cash Reconciliation & Risk
+app.post("/api/ai-audit", need("owner", "manager"), async (q, s) => {
+  try {
+    const { from, to } = q.body || {};
+    const st = stateNow();
+
+    let sqlDuties = "select * from duties where status in ('closed', 'submitted')";
+    const params = [];
+    if (from && validDay(from)) { sqlDuties += " and d >= ?"; params.push(from); }
+    if (to && validDay(to)) { sqlDuties += " and d <= ?"; params.push(to); }
+    sqlDuties += " order by d asc, id asc";
+
+    const rawDuties = db.prepare(sqlDuties).all(...params);
+    const duties = rawDuties.map(detail);
+
+    let totalLitres = 0;
+    let totalSales = 0;
+    let totalExpected = 0;
+    let totalCollected = 0;
+    let totalShortage = 0;
+    let totalExcess = 0;
+    let totalDutyExp = 0;
+    let totalCreditSales = 0;
+    let totalRecoveries = 0;
+
+    const workerStats = {};
+    const dutiesWithShortage = [];
+
+    duties.forEach((d) => {
+      totalLitres += d.litres || 0;
+      totalSales += d.sales || 0;
+      totalExpected += d.expected || 0;
+      totalCollected += d.collected || 0;
+      totalDutyExp += d.exp || 0;
+      totalCreditSales += d.credit || 0;
+      totalRecoveries += d.recovery || 0;
+
+      const diff = d.diff || 0;
+      if (diff < -10) {
+        totalShortage += Math.abs(diff);
+        dutiesWithShortage.push({
+          id: d.id,
+          date: d.d,
+          shift: d.shift,
+          worker: d.worker || "Unknown",
+          shortage: Math.abs(diff),
+          collected: d.collected,
+          expected: d.expected,
+        });
+      } else if (diff > 10) {
+        totalExcess += diff;
+      }
+
+      const w = d.worker || "Unassigned";
+      if (!workerStats[w]) {
+        workerStats[w] = { worker: w, dutiesCount: 0, litres: 0, sales: 0, shortage: 0, excess: 0, netDiff: 0 };
+      }
+      workerStats[w].dutiesCount++;
+      workerStats[w].litres += d.litres || 0;
+      workerStats[w].sales += d.sales || 0;
+      if (diff < -10) workerStats[w].shortage += Math.abs(diff);
+      else if (diff > 10) workerStats[w].excess += diff;
+      workerStats[w].netDiff += diff;
+    });
+
+    const custs = typeof customers === "function" ? customers() : [];
+    let totalCustomerDebt = 0;
+    const overLimitCustomers = [];
+    const topDebtors = [];
+
+    custs.forEach((c) => {
+      const orig = (st.c || []).find((x) => String(x.id) === String(c.id));
+      const limit = (orig && orig.limit) || 0;
+      const d = c.due || 0;
+      if (d > 0) {
+        totalCustomerDebt += d;
+        topDebtors.push({ name: c.name, due: d, limit });
+        if (limit > 0 && d > limit) {
+          overLimitCustomers.push({ name: c.name, due: d, limit, excess: r2(d - limit) });
+        }
+      }
+    });
+    topDebtors.sort((a, b) => b.due - a.due);
+    overLimitCustomers.sort((a, b) => b.excess - a.excess);
+
+    const items = st.items || [];
+    const lowStockItems = [];
+    let totalStockValCost = 0;
+    let totalStockValSale = 0;
+    items.forEach((i) => {
+      const cv = (i.stock || 0) * (i.buy || 0);
+      const sv = (i.stock || 0) * (i.sell || 0);
+      totalStockValCost += cv;
+      totalStockValSale += sv;
+      if ((i.stock || 0) <= (i.low || 0)) {
+        lowStockItems.push({ name: i.name, stock: i.stock, low: i.low, unit: i.unit });
+      }
+    });
+
+    const bk = st.bk || [];
+    let totalBookExp = 0;
+    const expCats = {};
+    bk.forEach((b) => {
+      if (b.t === "out") {
+        if ((!from || b.d >= from) && (!to || b.d <= to)) {
+          totalBookExp += b.a || 0;
+          const cat = b.cat || "Other";
+          expCats[cat] = (expCats[cat] || 0) + (b.a || 0);
+        }
+      }
+    });
+
+    const reconciliationAccuracy = totalExpected > 0 ? Math.max(0, Math.min(100, r2((1 - totalShortage / totalExpected) * 100))) : 100;
+
+    const stationData = {
+      auditPeriod: { from: from || "Historical Start", to: to || "Current Date" },
+      shiftDuties: {
+        totalDuties: duties.length,
+        totalLitres: r2(totalLitres),
+        fuelSalesRevenue: r2(totalSales),
+        expectedSettlement: r2(totalExpected),
+        actualCollected: r2(totalCollected),
+        shortageAmount: r2(totalShortage),
+        excessAmount: r2(totalExcess),
+        reconciliationAccuracyPct: r2(reconciliationAccuracy),
+        shortageShiftsCount: dutiesWithShortage.length,
+        recentShortageShifts: dutiesWithShortage.slice(-5),
+        workerAccountability: Object.values(workerStats).map((w) => ({
+          worker: w.worker,
+          duties: w.dutiesCount,
+          litres: r2(w.litres),
+          shortage: r2(w.shortage),
+          excess: r2(w.excess),
+          netDiscrepancy: r2(w.netDiff),
+        })),
+      },
+      creditRisk: {
+        totalOutstandingDebt: r2(totalCustomerDebt),
+        activeDebtorsCount: topDebtors.length,
+        overLimitCustomersCount: overLimitCustomers.length,
+        overLimitExcessDebt: r2(overLimitCustomers.reduce((s, c) => s + c.excess, 0)),
+        flaggedOverLimitCustomers: overLimitCustomers.slice(0, 5),
+        topDebtors: topDebtors.slice(0, 5),
+      },
+      inventory: {
+        totalItems: items.length,
+        lowStockItemsCount: lowStockItems.length,
+        lowStockItems: lowStockItems.slice(0, 8),
+        totalValuationAtCost: r2(totalStockValCost),
+        totalValuationAtRetail: r2(totalStockValSale),
+      },
+      expenses: {
+        dutyExpenses: r2(totalDutyExp),
+        cashBookExpenses: r2(totalBookExp),
+        totalOperatingExpenses: r2(totalDutyExp + totalBookExp),
+        topCategories: expCats,
+      },
+    };
+
+    let auditResult = null;
+    if (aiClient) {
+      const models = ["gemini-3.1-flash-lite", "gemini-3.8-flash"];
+      const schema = {
+        type: Type.OBJECT,
+        properties: {
+          score: { type: Type.INTEGER, description: "Overall pump audit health score between 0 and 100" },
+          rating: { type: Type.STRING, description: "Audit rating: Excellent, Good, Needs Attention, or High Risk" },
+          headline: { type: Type.STRING, description: "One concise executive headline diagnosis" },
+          summary: { type: Type.STRING, description: "1-2 paragraphs forensic audit summary" },
+          risks: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                severity: { type: Type.STRING, description: "high, medium, or low" },
+                category: { type: Type.STRING, description: "Cash Settlement, Credit Risk, Stock & Inventory, Operational Expenses, or Fuel Variance" },
+                title: { type: Type.STRING, description: "Short descriptive risk title" },
+                detail: { type: Type.STRING, description: "Specific details and root cause" },
+                impact: { type: Type.STRING, description: "Quantified financial/operational impact" },
+              },
+              required: ["severity", "category", "title", "detail", "impact"],
+            },
+          },
+          strengths: { type: Type.ARRAY, items: { type: Type.STRING } },
+          recommendations: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                priority: { type: Type.STRING, description: "Immediate, High, or Medium" },
+                action: { type: Type.STRING, description: "Clear actionable step" },
+                expectedImpact: { type: Type.STRING, description: "Anticipated improvement" },
+              },
+              required: ["priority", "action", "expectedImpact"],
+            },
+          },
+        },
+        required: ["score", "rating", "headline", "summary", "risks", "strengths", "recommendations"],
+      };
+
+      for (const m of models) {
+        try {
+          const res = await aiClient.models.generateContent({
+            model: m,
+            contents: `Perform an in-depth forensic and operational audit of this petroleum pump station data. Identify any settlement cash leakages, worker shortage patterns, customer credit limit violations, and inventory issues:\n\n${JSON.stringify(stationData, null, 2)}`,
+            config: {
+              responseMimeType: "application/json",
+              responseSchema: schema,
+              systemInstruction: "You are a professional petroleum retail operations forensic auditor. You inspect pump station shift handovers, nozzle readings, cash discrepancies, debtor limits, and stock. Be thorough, objective, and provide concrete numbers in your analysis.",
+            },
+          });
+          if (res && res.text) {
+            auditResult = JSON.parse(res.text.trim());
+            auditResult.modelUsed = m;
+            break;
+          }
+        } catch (err) {
+          console.warn(`Audit model ${m} failed:`, err.message || err);
+        }
+      }
+    }
+
+    if (!auditResult) {
+      let score = 100;
+      const risks = [];
+      const strengths = [];
+      const recs = [];
+
+      if (totalShortage > 5000) {
+        score -= 25;
+        risks.push({
+          severity: "high",
+          category: "Cash Settlement",
+          title: "Elevated Shift Cash Shortages",
+          detail: `Cumulative worker handover shortages reached ₹${Math.round(totalShortage).toLocaleString("en-IN")} across ${dutiesWithShortage.length} shifts.`,
+          impact: `Direct cash leakage of ₹${Math.round(totalShortage).toLocaleString("en-IN")}`,
+        });
+        recs.push({
+          priority: "Immediate",
+          action: "Enforce end-of-shift physical cash count verification and require worker counter-signatures on duty collection discrepancy logs.",
+          expectedImpact: "Eliminates unaccounted shift handover cash differences.",
+        });
+      } else if (totalShortage > 1000) {
+        score -= 12;
+        risks.push({
+          severity: "medium",
+          category: "Cash Settlement",
+          title: "Minor Shift Cash Variances Detected",
+          detail: `Worker handover shortages total ₹${Math.round(totalShortage).toLocaleString("en-IN")}.`,
+          impact: `₹${Math.round(totalShortage).toLocaleString("en-IN")} unrecovered variance`,
+        });
+      } else {
+        strengths.push(`Settlement accuracy is exceptional at ${reconciliationAccuracy}% with negligible cash variance.`);
+      }
+
+      if (overLimitCustomers.length > 0) {
+        const overLimitDebt = overLimitCustomers.reduce((s, c) => s + c.excess, 0);
+        score -= overLimitDebt > 25000 ? 25 : 15;
+        risks.push({
+          severity: overLimitDebt > 25000 ? "high" : "medium",
+          category: "Credit Risk",
+          title: "Customer Credit Limits Exceeded",
+          detail: `${overLimitCustomers.length} customer account(s) have exceeded sanctioned credit limits by ₹${Math.round(overLimitDebt).toLocaleString("en-IN")}.`,
+          impact: `Working capital lockup of ₹${Math.round(overLimitDebt).toLocaleString("en-IN")}`,
+        });
+        recs.push({
+          priority: "Immediate",
+          action: `Suspend new fuel credit dispensing for ${overLimitCustomers.map((c) => c.name).join(", ")} until ledger arrears are cleared.`,
+          expectedImpact: "Prevents bad debts and preserves station cash liquidity.",
+        });
+      } else {
+        strengths.push("All customer ledger credit balances remain strictly within approved limits.");
+      }
+
+      if (lowStockItems.length > 0) {
+        score -= lowStockItems.length * 4;
+        risks.push({
+          severity: lowStockItems.length > 2 ? "high" : "medium",
+          category: "Stock & Inventory",
+          title: "Inventory Below Reorder Threshold",
+          detail: `${lowStockItems.length} inventory item(s) (${lowStockItems.map((i) => i.name).join(", ")}) are at or below minimum threshold.`,
+          impact: "Stockout risk leading to missed retail sales revenue",
+        });
+        recs.push({
+          priority: "High",
+          action: `Place purchase orders immediately for: ${lowStockItems.map((i) => i.name).join(", ")}.`,
+          expectedImpact: "Ensures uninterrupted retail sales.",
+        });
+      } else {
+        strengths.push("All inventory and lubricant items are healthy and adequately stocked above minimum levels.");
+      }
+
+      if (totalLitres > 0) {
+        strengths.push(`Consistent dispensing volume with ${Math.round(totalLitres).toLocaleString("en-IN")} litres across ${duties.length} shift duty cycles.`);
+      }
+
+      score = Math.max(10, Math.min(100, Math.round(score)));
+      let rating = "Excellent";
+      if (score < 50) rating = "High Risk";
+      else if (score < 75) rating = "Needs Attention";
+      else if (score < 90) rating = "Good";
+
+      auditResult = {
+        score,
+        rating,
+        headline: score >= 80 ? "Station operations demonstrate stable control with manageable risk factors." : "Action required: cash handover and credit risk controls require immediate management intervention.",
+        summary: `Audit evaluated ${duties.length} shifts with ₹${Math.round(totalSales).toLocaleString("en-IN")} in gross fuel sales. Net cash reconciliation stands at ${reconciliationAccuracy}%. Customer credit ledger holds ₹${Math.round(totalCustomerDebt).toLocaleString("en-IN")} in outstanding balances with ${overLimitCustomers.length} accounts exceeding limits.`,
+        risks,
+        strengths,
+        recommendations: recs,
+        modelUsed: "Forensic Engine",
+      };
+    }
+
+    s.json({
+      ok: true,
+      audit: auditResult,
+      metrics: {
+        score: auditResult.score,
+        rating: auditResult.rating,
+        totalLitres: r2(totalLitres),
+        totalSales: r2(totalSales),
+        totalExpected: r2(totalExpected),
+        totalCollected: r2(totalCollected),
+        totalShortage: r2(totalShortage),
+        totalExcess: r2(totalExcess),
+        netSettlementDiff: r2(totalCollected - totalExpected),
+        reconciliationAccuracy: r2(reconciliationAccuracy),
+        overLimitCount: overLimitCustomers.length,
+        overLimitDebt: r2(overLimitCustomers.reduce((s, c) => s + c.excess, 0)),
+        totalCustomerDebt: r2(totalCustomerDebt),
+        lowStockCount: lowStockItems.length,
+        dutiesCount: duties.length,
+        shortageDutyCount: dutiesWithShortage.length,
+      },
+      stationData,
+      generatedAt: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error("AI audit error:", err);
+    s.status(500).json({ error: "Could not generate AI audit: " + (err.message || "Internal error") });
+  }
 });
 
 // ---- Fuel tanks: dip readings and stock check
