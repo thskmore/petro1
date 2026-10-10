@@ -72,47 +72,72 @@ th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line)}td.r,
 .app-topbar-sub{font-size:11px;color:var(--mute);text-transform:uppercase;letter-spacing:0.5px;font-weight:700}
 .app-topbar-right{display:flex;align-items:center;gap:6px;flex:none}
 
-/* Drawer Backdrop */
+/* Drawer Backdrop (Mobile only) */
 .nav-drawer-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:90;opacity:0;pointer-events:none;transition:opacity .25s cubic-bezier(0.16,1,0.3,1);backdrop-filter:blur(2px);-webkit-backdrop-filter:blur(2px)}
 .nav-drawer-backdrop.active{opacity:1;pointer-events:auto}
 
-/* Navigation Drawer Sidebar */
+/* Navigation Drawer Sidebar & Desktop Rail */
 .nav-drawer{position:fixed;top:0;bottom:0;left:0;width:min(320px,84vw);background:var(--card);color:var(--ink);z-index:100;box-shadow:4px 0 28px rgba(0,0,0,0.22);transform:translateX(-100%);transition:transform .28s cubic-bezier(0.16,1,0.3,1);display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);touch-action:pan-y}
 .nav-drawer.open{transform:translateX(0)}
 .nav-drawer.dragging{transition:none}
 
 .nav-drawer-header{display:flex;align-items:center;justify-content:space-between;padding:16px 18px 14px;border-bottom:1px solid var(--line)}
 .nav-drawer-brand{display:flex;align-items:center;gap:10px}
-.nav-drawer-logo{width:36px;height:36px;border-radius:10px;background:var(--btn);color:var(--btnt);display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;flex:none}
+.nav-drawer-logo{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg, #f46325, #fa8938);color:#fff;display:flex;align-items:center;justify-content:center;font-size:18px;font-weight:800;box-shadow:0 2px 8px rgba(244,99,37,0.25);flex:none}
 .nav-drawer-close{width:36px;height:36px;border-radius:8px;background:transparent;border:1px solid var(--line);color:var(--ink);display:flex;align-items:center;justify-content:center;cursor:pointer;padding:0;transition:background .15s}
 .nav-drawer-close:active{background:var(--bg)}
 
 .nav-drawer-body{flex:1;overflow-y:auto;padding:12px 10px;-webkit-overflow-scrolling:touch}
-.nav-drawer-section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.06em;color:var(--mute);padding:8px 12px 4px}
-.nav-drawer-item{display:flex;align-items:center;gap:12px;width:100%;padding:12px 14px;border-radius:10px;border:0;background:transparent;color:var(--ink);font-size:15px;font-weight:600;text-align:left;cursor:pointer;margin-bottom:3px;transition:background .15s,color .15s;-webkit-tap-highlight-color:transparent;min-height:44px}
-.nav-drawer-item:active{background:var(--bg)}
-.nav-drawer-item.active{background:var(--btn);color:var(--btnt)}
-.nav-drawer-item.active .nav-icon{color:var(--btnt)}
+.nav-drawer-section-title{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.07em;color:var(--mute);padding:10px 12px 4px}
+.nav-drawer-item{display:flex;align-items:center;gap:12px;width:100%;padding:10px 12px;border-radius:8px;border:0;background:transparent;color:var(--ink);font-size:14px;font-weight:600;text-align:left;cursor:pointer;margin-bottom:2px;position:relative;transition:background .15s,color .15s,transform .1s;-webkit-tap-highlight-color:transparent;min-height:42px}
+.nav-drawer-item:hover{background:var(--bg);color:var(--ink)}
+.nav-drawer-item.active{background:var(--btn);color:var(--btnt);font-weight:700}
+.nav-drawer-item.active .nav-icon{color:var(--btnt);opacity:1}
 .nav-drawer-item.active .nav-badge{background:var(--card);color:var(--btn)}
-.nav-drawer-item .nav-icon{width:20px;height:20px;flex:none;opacity:.9}
+.nav-drawer-item .nav-icon{width:18px;height:18px;flex:none;opacity:.85}
 .nav-drawer-item .nav-label{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .nav-drawer-item .nav-badge{font-size:11px;font-weight:700;padding:2px 7px;border-radius:10px;background:var(--due);color:#fff;margin-left:auto}
 
-.nav-drawer-footer{padding:14px 16px;border-top:1px solid var(--line);background:var(--bg);display:flex;flex-direction:column;gap:8px}
+.nav-drawer-footer{padding:12px 14px;border-top:1px solid var(--line);background:var(--bg);display:flex;flex-direction:column;gap:8px}
 .nav-drawer-user{font-size:13px;font-weight:600;color:var(--ink);display:flex;align-items:center;gap:8px}
 .nav-drawer-role{font-size:11px;color:var(--mute);text-transform:capitalize}
 
-/* Responsive visibility */
-@media(max-width:767px){
-  .app-topbar{display:flex}
+/* Desktop Header Topbar (Option 1) */
+.desktop-topbar{display:none;align-items:center;justify-content:space-between;padding:10px 0 16px;margin-bottom:16px;border-bottom:1px solid var(--line);gap:16px}
+.desktop-topbar-left{display:flex;align-items:center;gap:12px;min-width:0}
+.desktop-topbar-icon{width:36px;height:36px;border-radius:9px;background:var(--btn);color:var(--btnt);display:flex;align-items:center;justify-content:center;font-size:17px;flex:none}
+.desktop-topbar-icon svg{width:20px;height:20px}
+.desktop-topbar-breadcrumb{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.5px;color:var(--mute);display:flex;align-items:center;gap:6px}
+.desktop-topbar-title{font-size:20px;font-weight:800;letter-spacing:-0.4px;color:var(--ink);line-height:1.2}
+.desktop-topbar-right{display:flex;align-items:center;gap:10px;flex:none}
+.desktop-rates-pill{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:6px 14px;font-size:12px;font-weight:700;color:var(--ink);box-shadow:0 1px 4px rgba(0,0,0,0.03)}
+.desktop-rate-item{display:flex;align-items:center;gap:6px}
+.dot-fuel{width:8px;height:8px;border-radius:50%;display:inline-block}
+.dot-fuel.ms{background:#f46325}
+.dot-fuel.hsd{background:#0b7a5f}
+.desktop-rate-sep{color:var(--line);font-weight:300}
+.desktop-date-pill{display:flex;align-items:center;gap:6px;background:var(--card);border:1px solid var(--line);border-radius:20px;padding:6px 12px;font-size:12px;font-weight:600;color:var(--mute)}
+
+/* Option 1 Desktop Layout (screens >= 900px) */
+@media(min-width:900px){
+  body.logged-in{padding-left:260px;background:var(--bg)}
+  body.logged-in .nav-drawer{position:fixed!important;top:0!important;bottom:0!important;left:0!important;width:260px!important;transform:translateX(0)!important;box-shadow:none!important;border-right:1px solid var(--line)!important;z-index:50!important;display:flex!important;transition:none!important}
+  body.logged-in .nav-drawer-backdrop{display:none!important;pointer-events:none!important}
+  body.logged-in .nav-drawer-close{display:none!important}
+  .app-topbar{display:none!important}
+  .desktop-topbar{display:flex!important}
   .desktop-nav-grid{display:none!important}
-  .wrap{padding:12px}
+  .wrap{max-width:1320px!important;padding:20px 32px!important;margin:0 auto!important}
+  #sheet{max-width:680px;border-radius:14px}
 }
-@media(min-width:768px){
-  .app-topbar{display:none}
-  .desktop-nav-grid{display:grid}
-  .wrap{max-width:960px}
-  #sheet{max-width:640px;border-radius:14px}
+
+/* Mobile Devices (< 900px) - Retain Touch-Friendly Navigation Drawer */
+@media(max-width:899px){
+  body{padding-left:0!important}
+  .desktop-topbar{display:none!important}
+  .app-topbar{display:flex!important}
+  .desktop-nav-grid{display:none!important}
+  .wrap{max-width:560px;padding:14px 16px;margin:0 auto}
 }
 
 /* Handover History Tab Styles */
@@ -405,6 +430,7 @@ th,td{padding:9px 10px;text-align:left;border-bottom:1px solid var(--line)}td.r,
   <div class="nav-drawer-footer" id="navDrawerFooter"></div>
 </div>
 <script>
+try{var _th=localStorage.getItem("petrol-theme");if(_th)document.documentElement.setAttribute("data-theme",_th)}catch(e){}
 function emptyS(){return{c:[],inv:[],items:[],sup:[],bk:[],nozzles:[],tanks:[],deliv:[],rates:[],expcats:[],paymodes:[],ob:{Cash:0,Bank:0,UPI:0},biz:{name:"",addr:"",gst:""}}}
 var KEY="petrol-credit-ledger-v1",S=emptyS(),view=null,from="",to="",onlyDue=false,cb,tab="ledger",dr=null,iv=null,sv=null,bf="all",rf=today().slice(0,8)+"01",rt=today();
 function load(){try{var r=localStorage.getItem(KEY);if(r)return JSON.parse(r)}catch(e){}
@@ -464,7 +490,7 @@ l.forEach(function(c){var d=due(c),p=c.limit?Math.min(100,d/c.limit*100):0;
 h+='<div class="cust" tabindex="0"'+(c.active===false?' style="opacity:.6"':'')+' onclick="view='+c.id+';render()" onkeydown="if(event.key==\'Enter\'){view='+c.id+';render()}"><div class="row"><b>'+esc(c.name)+(c.active===false?' (inactive)':'')+'</b><span class="amt" style="text-align:right;flex:none;color:'+(d>0?'var(--due)':'var(--ok)')+'">'+inr(d)+'</span></div><div class="sub">'+(c.veh.length?esc(c.veh.join(", ")):"No vehicles added")+'</div><div class="bar"><i style="width:'+p+'%;background:'+(p>=90?'var(--due)':p>=70?'var(--warn)':'var(--ok)')+'"></i></div><div class="sub" style="margin-top:4px">'+Math.round(p)+'% of '+inr(c.limit)+' limit used</div></div>'}
 )}else{var c=find(view),d=due(c),bal=0;
 h+='<button class="ghost noprint" onclick="view=null;render()">Back to customers</button><h1 style="margin-top:14px">'+esc(c.name)+'</h1><div class="total">'+inr(d)+'</div><div class="sub">Limit '+inr(c.limit)+' · Available '+inr(Math.max(0,c.limit-d))+'</div><div class="sub">'+esc(c.phone)+(c.gst?' · GST '+esc(c.gst):'')+'</div><div class="sub">Vehicles: '+(c.veh.length?esc(c.veh.join(", ")):"none added")+'</div>'+
-'<div class="btns noprint"><button onclick="entryForm(\'sale\')">Add credit sale</button><button onclick="entryForm(\'pay\')">Receive payment</button><button class="ghost" style="display:inline-flex;align-items:center;gap:6px" onclick="downloadCustPDF()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>Download PDF</button><button class="ghost" onclick="remind()">Send WhatsApp reminder</button><button class="ghost" onclick="custForm('+c.id+')">Edit details</button><button class="ghost" onclick="window.print()">Print statement</button><button class="ghost" onclick="stmt()">Share statement</button></div>';
+'<div class="btns noprint"><button onclick="entryForm(\'sale\')">Add credit sale</button><button onclick="entryForm(\'pay\')">Receive payment</button><button class="ghost" style="display:inline-flex;align-items:center;gap:6px" onclick="downloadCustPDF()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>Download PDF</button><button class="ghost" style="display:inline-flex;align-items:center;gap:6px" onclick="remind('+c.id+')"><svg width="14" height="14" viewBox="0 0 24 24" fill="#25D366"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>WhatsApp Reminder</button><button class="ghost" style="display:inline-flex;align-items:center;gap:6px" onclick="stmt('+c.id+')"><svg width="14" height="14" viewBox="0 0 24 24" fill="#25D366"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>WhatsApp Statement</button><button class="ghost" onclick="custForm('+c.id+')">Edit details</button><button class="ghost" onclick="window.print()">Print statement</button></div>';
 h+=ageing(c)+'<div class="row noprint"><label>From<input type="date" value="'+from+'" onchange="from=this.value;render()"></label><label>To<input type="date" value="'+to+'" onchange="to=this.value;render()"></label></div>';
 h+='<div class="tbl" style="margin-top:12px"><table><tr><th>Date</th><th>Detail</th><th class="r">Amount</th><th class="r">Balance</th><th class="noprint"></th></tr>';var n=0;
 rows(c).forEach(function(o){var x=o.x;if(o.skip)return;n++;
@@ -501,9 +527,226 @@ function go(){if(old)c.e[i]=o;else c.e.push(o);save();close();render()}
 if(t=="sale"&&cur+a>c.limit)return ask("This sale takes "+c.name+" over the credit limit by "+inr(cur+a-c.limit)+". Save anyway?",go);
 if(t=="pay"&&a>cur)return ask("Payment is more than the amount due. Save anyway?",go);go()}
 function delEntry(i){var c=find(view),x=c.e[i];ask("Delete the "+(x.t=="sale"?"sale":"payment")+" of "+inr(x.a)+" ("+x.n+")?",function(){if(x.srv){var ep=String(x.srv).indexOf("rec_")===0?("/api/credit-recoveries/"+x.srv.slice(4)):("/api/credit-sales/"+x.srv);api("DELETE",ep).then(function(){pullDuty(render)}).catch(function(e){badge(e.error||"Could not delete.")});return}c.e.splice(i,1);save();render()})}
-function stmt(){var c=find(view),t="Statement for "+c.name+(from||to?" ("+(from||"start")+" to "+(to||"today")+")":"")+"\n";
-rows(c).forEach(function(o){if(!o.skip)t+=o.x.d+" "+(o.x.t=="sale"?"Sale ":"Paid ")+o.x.n+" "+(o.x.t=="sale"?"+":"-")+Math.round(o.x.a)+" | Bal "+Math.round(o.bal)+"\n"});
-t+="Total outstanding: "+inr(due(c));window.open("https://wa.me/91"+c.phone.slice(-10)+"?text="+encodeURIComponent(t),"_blank")}
+
+// ---- WhatsApp Free Client-Side Engine (Package C)
+function toWaNumber(raw){
+  var d = String(raw == null ? '' : raw).replace(/\D/g, '');
+  if (!d) return null;
+  if (d.length === 10) return '91' + d;
+  if (d.length === 11 && d[0] === '0') return '91' + d.slice(1);
+  if (d.length === 12 && d.slice(0, 2) === '91') return d;
+  if (d.length > 12 && d.slice(0, 2) === '00') return d.slice(2);
+  return d.length >= 10 ? d : null;
+}
+
+function waLink(number, text){
+  var n = toWaNumber(number);
+  if (!n) throw new Error("Please enter a valid 10-digit WhatsApp number.");
+  var isMob = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '') || window.innerWidth < 900;
+  var encoded = encodeURIComponent(text);
+  return isMob ? ('https://wa.me/' + n + '?text=' + encoded) : ('https://web.whatsapp.com/send?phone=' + n + '&text=' + encoded);
+}
+
+function openWaLink(number, text){
+  try {
+    var url = waLink(number, text);
+    window.open(url, '_blank');
+  } catch(e) {
+    toast(e.message || "Please provide a valid 10-digit WhatsApp phone number.");
+  }
+}
+
+function getWaTemplate(c, tmplKey){
+  var bName = (S&&S.biz&&S.biz.name) ? S.biz.name : "Rituraj Petrolieum";
+  var bAddr = (S&&S.biz&&S.biz.addr) ? S.biz.addr : "";
+  var upi = (S&&S.biz&&S.biz.upi) ? S.biz.upi : "";
+  var upiText = upi ? ("\n📲 *Pay via UPI:* " + upi) : "\n📲 *Pay via:* UPI / Bank Transfer / Cash";
+  var d = due(c);
+  var cLimit = c.limit || 0;
+  var avail = Math.max(0, cLimit - d);
+  var vehStr = (c.veh && c.veh.length) ? c.veh.join(", ") : "";
+
+  var sales = (c.e || []).filter(function(x){ return x.t === "sale"; }).sort(function(a,b){ return a.d < b.d ? -1 : 1; });
+  var pays = (c.e || []).filter(function(x){ return x.t === "pay"; }).sort(function(a,b){ return a.d < b.d ? -1 : 1; });
+  var lastSale = sales.length ? sales[sales.length - 1] : null;
+  var lastPay = pays.length ? pays[pays.length - 1] : null;
+
+  if(tmplKey === "stmt"){
+    var lines = [];
+    var allRows = (c.e || []).slice().sort(function(a,b){ return a.d < b.d ? -1 : 1; });
+    var recent = allRows.slice(-8);
+    recent.forEach(function(x){
+      var isSale = x.t === "sale";
+      lines.push("• " + x.d.slice(5) + " · " + (isSale ? "Sale " : "Paid ") + (x.n || "") + " · " + (isSale ? "+" : "−") + inr(x.a));
+    });
+    return [
+      "*" + bName + " — Customer Account Statement*",
+      bAddr ? ("📍 " + bAddr) : "",
+      "Customer: *" + c.name + "*" + (vehStr ? (" (" + vehStr + ")") : ""),
+      "Statement Date: " + today(),
+      "",
+      "*Recent Ledger Entries:*",
+      lines.length ? lines.join("\n") : "• No transaction history recorded.",
+      "",
+      "Total Outstanding Due: *" + inr(d) + "*",
+      "Credit Limit: " + inr(cLimit) + " (Available: " + inr(avail) + ")",
+      upiText,
+      "",
+      "Kindly clear the dues at your earliest convenience.",
+      "Thank you for fuelling with us! ⛽🙏"
+    ].filter(function(l){ return l !== null && l !== ""; }).join("\n");
+  }
+
+  if(tmplKey === "overdue"){
+    return [
+      "Dear *" + c.name + "*,",
+      "",
+      "*" + bName + "* — Overdue Credit Follow-up Notice",
+      "",
+      "Current Pending Balance: *" + inr(d) + "*",
+      "Agreed Credit Limit: " + inr(cLimit),
+      lastPay ? ("Last Payment Received: " + inr(lastPay.a) + " on " + lastPay.d) : "",
+      "",
+      "Please arrange to settle the outstanding dues promptly to maintain an active fuelling credit line.",
+      upiText,
+      "",
+      "If payment was already transferred today, kindly share the reference transaction ID.",
+      "Thank you for your cooperation."
+    ].filter(Boolean).join("\n");
+  }
+
+  if(tmplKey === "receipt"){
+    var payAmt = lastPay ? lastPay.a : 0;
+    var payDate = lastPay ? lastPay.d : today();
+    var payMode = lastPay ? (lastPay.n || "Cash / UPI") : "Payment";
+    return [
+      "*" + bName + "* — Payment Received ✅",
+      "",
+      "Customer: *" + c.name + "*",
+      "Amount Received: *" + inr(payAmt) + "*",
+      "Payment Mode: " + payMode,
+      "Date: " + payDate,
+      "",
+      "Remaining Outstanding Balance: *" + inr(d) + "*",
+      upiText,
+      "",
+      "Thank you for your prompt settlement! 🙏"
+    ].filter(Boolean).join("\n");
+  }
+
+  // Default: Gentle reminder
+  return [
+    "Namaste *" + c.name + "* 🙏",
+    "",
+    "A gentle reminder from *" + bName + "*.",
+    "",
+    "Current Outstanding Credit: *" + inr(d) + "*",
+    lastSale ? ("Last Fuel Fill-up: " + lastSale.d + " (" + lastSale.n + " · " + inr(lastSale.a) + ")") : "",
+    lastPay ? ("Last Payment: " + lastPay.d + " (" + inr(lastPay.a) + ")") : "",
+    "Available Credit Limit: " + inr(avail) + " / " + inr(cLimit),
+    "",
+    "Kindly clear the balance at your earliest convenience.",
+    upiText,
+    "",
+    "Thank you for fuelling with us! ⛽"
+  ].filter(Boolean).join("\n");
+}
+
+function waModal(id, key){
+  var c = find(id || view);
+  if(!c) return;
+  var d = due(c);
+  var currentKey = key || (d > 0 ? "remind" : "stmt");
+  var text = getWaTemplate(c, currentKey);
+
+  var tabsHtml = '<div class="ops-subtabs noprint" style="margin:10px 0 14px;background:var(--bg);padding:4px;border-radius:10px;display:flex;gap:4px;overflow-x:auto">' +
+    '<button class="ops-subtab-btn '+(currentKey==="remind"?"active":"")+'" onclick="waModal('+c.id+',\'remind\')">💬 Gentle Reminder</button>' +
+    '<button class="ops-subtab-btn '+(currentKey==="stmt"?"active":"")+'" onclick="waModal('+c.id+',\'stmt\')">📊 Detailed Statement</button>' +
+    '<button class="ops-subtab-btn '+(currentKey==="overdue"?"active":"")+'" onclick="waModal('+c.id+',\'overdue\')">⚠️ Overdue Notice</button>' +
+    '<button class="ops-subtab-btn '+(currentKey==="receipt"?"active":"")+'" onclick="waModal('+c.id+',\'receipt\')">🧾 Payment Receipt</button>' +
+  '</div>';
+
+  var h = '<div style="display:flex;align-items:center;justify-content:space-between;gap:8px">' +
+    '<h2 style="margin:0;font-size:18px">WhatsApp Reminders & Statements</h2>' +
+    '<span style="font-size:12px;font-weight:700;padding:3px 8px;border-radius:12px;background:'+(d>0?'rgba(184,50,31,0.12)':'rgba(11,122,95,0.12)')+';color:'+(d>0?'var(--due)':'var(--ok)')+'">'+(d>0?('Due: '+inr(d)):'Zero Dues')+'</span>' +
+  '</div>' +
+  '<div class="sub" style="margin-top:2px">Send pre-formatted instant reminders & statements directly to customer\'s WhatsApp</div>' +
+  tabsHtml +
+  '<label>Recipient WhatsApp Mobile Number' +
+    '<input id="waPhoneInput" inputmode="tel" placeholder="10-digit mobile number" value="'+esc(c.phone||"")+'">' +
+  '</label>' +
+  '<label style="margin-top:8px">Message Preview (Editable)' +
+    '<textarea id="waMsgInput" style="width:100%;height:180px;margin-top:4px;font:13px/1.4 monospace;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);padding:10px;resize:vertical">'+esc(text)+'</textarea>' +
+  '</label>' +
+  '<div class="row" style="margin-top:14px;gap:8px;flex-wrap:wrap">' +
+    '<button class="ghost" style="flex:1" onclick="closeM()">Cancel</button>' +
+    '<button class="ghost" style="flex:1" onclick="copyWaText()">📋 Copy Text</button>' +
+    '<button class="ghost" style="flex:1" onclick="downloadCustPDF()">📄 PDF Statement</button>' +
+    '<button style="flex:1.5;background:#25D366;color:#fff;border:0;display:inline-flex;align-items:center;justify-content:center;gap:6px" onclick="sendWaFromModal('+c.id+')">' +
+      '<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/></svg>' +
+      'Open WhatsApp' +
+    '</button>' +
+  '</div>';
+
+  openM(h);
+}
+
+function copyWaText(){
+  var el = document.getElementById("waMsgInput");
+  if(!el) return;
+  var text = el.value;
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(function(){
+      toast("Message text copied to clipboard! 📋");
+    }).catch(function(){
+      toast("Copied!");
+    });
+  } else {
+    el.select();
+    document.execCommand("copy");
+    toast("Message text copied! 📋");
+  }
+}
+
+function sendWaFromModal(id){
+  var c = find(id);
+  var phoneEl = document.getElementById("waPhoneInput");
+  var msgEl = document.getElementById("waMsgInput");
+  var rawPhone = phoneEl ? phoneEl.value.trim() : (c ? c.phone : "");
+  var msg = msgEl ? msgEl.value.trim() : "";
+  if(!rawPhone){
+    alert("Please enter the customer's 10-digit mobile number.");
+    return;
+  }
+  if(c && rawPhone && rawPhone !== c.phone){
+    c.phone = rawPhone.replace(/\D/g, "");
+    save();
+  }
+  try {
+    var url = waLink(rawPhone, msg);
+    if(c){
+      c.reminded = today();
+      save();
+    }
+    closeM();
+    window.open(url, "_blank");
+    toast("WhatsApp opened for " + (c ? c.name : "customer") + " 🚀");
+  } catch(e) {
+    alert(e.message || "Invalid phone number.");
+  }
+}
+
+function remind(id){
+  var c = find(id || view);
+  if(!c) return;
+  waModal(c.id, "remind");
+}
+
+function stmt(id){
+  var c = find(id || view);
+  if(!c) return;
+  waModal(c.id, "stmt");
+}
 function downloadCustPDF(){
   var jsPDF=(window.jspdf&&window.jspdf.jsPDF)||window.jsPDF;
   var c=find(view);
@@ -747,10 +990,6 @@ function downloadCustPDF(){
   doc.save(filename);
   toast("Statement PDF downloaded for "+c.name);
 }
-function remind(){var c=find(view),d=due(c);
-if(d<=0)return openM('<h2>No dues</h2><div class="sub">'+esc(c.name)+' has nothing outstanding.</div><div class="btns"><button onclick="close()">Close</button></div>');
-var m="Dear "+c.name+", your outstanding credit balance at our petrol pump is "+inr(d)+". Please clear it at your earliest convenience. Thank you.";
-openM('<h2>Reminder message</h2><label>Message<input id="f1" value="'+esc(m)+'"></label><div class="row" style="margin-top:14px"><button class="ghost" onclick="close()">Cancel</button><button onclick="window.open(\'https://wa.me/91'+c.phone.slice(-10)+'?text=\'+encodeURIComponent(v(\'f1\')),\'_blank\')">Open WhatsApp</button></div>')}
 function r2(n){return Math.round(n*100)/100}
 function m2(n){return "\u20b9"+n.toFixed(2)}
 function tax(ls,ig){var t=r2(ls.reduce(function(s,l){return s+l.q*l.r},0)),x=r2(t*.18),tot=Math.round(t+x);return{t:t,x:x,tot:tot,ro:r2(tot-t-x),ig:ig}}
@@ -867,6 +1106,7 @@ function getNavTabsList(){
 
 function openNavDrawer(){
   renderDrawerContent();
+  if(window.innerWidth >= 900) return;
   var drawer = document.getElementById("navDrawer");
   var backdrop = document.getElementById("navDrawerBackdrop");
   if(drawer) drawer.classList.add("open");
@@ -875,6 +1115,7 @@ function openNavDrawer(){
 }
 
 function closeNavDrawer(){
+  if(window.innerWidth >= 900) return;
   var drawer = document.getElementById("navDrawer");
   var backdrop = document.getElementById("navDrawerBackdrop");
   if(drawer) drawer.classList.remove("open");
@@ -883,21 +1124,45 @@ function closeNavDrawer(){
 }
 
 function selectNavTab(tabId){
-  closeNavDrawer();
+  if(window.innerWidth < 900){
+    closeNavDrawer();
+  }
   tab = tabId;
   view = null;
   iv = null;
   dr = null;
   sv = null;
+  var items = document.querySelectorAll(".nav-drawer-item");
+  items.forEach(function(el){
+    if(el.getAttribute("data-tab-id") === tabId){
+      el.classList.add("active");
+    } else {
+      el.classList.remove("active");
+    }
+  });
   render();
 }
 
+function toggleTheme(){
+  var cur = document.documentElement.getAttribute("data-theme");
+  var nxt = cur === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", nxt);
+  try{ localStorage.setItem("petrol-theme", nxt); }catch(e){}
+  renderDrawerContent();
+}
+
 function renderDrawerContent(){
-  var bName = (S&&S.biz&&S.biz.name) ? S.biz.name : "Petrol Pump";
+  var bName = (S&&S.biz&&S.biz.name) ? S.biz.name : "Rituraj Petrolieum";
   var bnEl = document.getElementById("drawerBizName");
   if(bnEl) bnEl.textContent = bName;
   var roleEl = document.getElementById("drawerBizRole");
-  if(roleEl && ME) roleEl.textContent = ME.name + " (" + ME.role + ")";
+  if(roleEl){
+    if(ME){
+      roleEl.textContent = (ME.role === 'owner' ? 'HPCL Dealership • Owner' : (ME.role === 'manager' ? 'HPCL Station • Manager' : 'HPCL Station • Shift Duty'));
+    } else {
+      roleEl.textContent = 'HPCL Retail Outlet';
+    }
+  }
 
   var items = getNavTabsList();
   var body = document.getElementById("navDrawerBody");
@@ -911,7 +1176,7 @@ function renderDrawerContent(){
       h += '<div class="nav-drawer-section-title">'+esc(currentGroup)+'</div>';
     }
     var isActive = (tab === item.id);
-    h += '<button type="button" class="nav-drawer-item '+(isActive?'active':'')+'" onclick="selectNavTab(\''+item.id+'\')">';
+    h += '<button type="button" class="nav-drawer-item '+(isActive?'active':'')+'" data-tab-id="'+item.id+'" onclick="selectNavTab(\''+item.id+'\')">';
     h += item.icon;
     h += '<span class="nav-label">'+esc(item.label)+'</span>';
     if(item.badge) h += item.badge;
@@ -921,16 +1186,33 @@ function renderDrawerContent(){
 
   var footer = document.getElementById("navDrawerFooter");
   if(footer){
+    var isDark = document.documentElement.getAttribute("data-theme") === "dark";
+    var themeBtn = '<button type="button" class="ghost" style="padding:6px 10px;font-size:12px;display:flex;align-items:center;justify-content:center;gap:6px;flex:1" onclick="toggleTheme()">' + (isDark ? '☀️ Light' : '🌙 Dark') + '</button>';
     if(SRV && ME){
-      footer.innerHTML = '<div class="nav-drawer-user"><span>👤</span><div style="flex:1;min-width:0"><div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+esc(ME.name)+'</div><div class="nav-drawer-role">'+esc(ME.role)+' • '+esc(ME.mobile||'')+'</div></div></div><div class="row" style="gap:6px;margin-top:4px"><button type="button" class="ghost" style="padding:8px 10px;font-size:13px;flex:1" onclick="closeNavDrawer();pwForm()">Password</button><button type="button" class="ghost" style="padding:8px 10px;font-size:13px;flex:1;color:var(--due)" onclick="closeNavDrawer();logout()">Log out</button></div>';
+      footer.innerHTML = '<div class="nav-drawer-user">' +
+        '<div style="width:30px;height:30px;border-radius:50%;background:var(--btn);color:var(--btnt);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex:none">' + esc((ME.name||'U').slice(0,1).toUpperCase()) + '</div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">' + esc(ME.name) + '</div>' +
+          '<div class="nav-drawer-role">' + esc(ME.role) + (ME.mobile ? (' • ' + esc(ME.mobile)) : '') + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div class="row" style="gap:6px;margin-top:6px">' +
+        themeBtn +
+        '<button type="button" class="ghost" style="padding:6px 8px;font-size:12px;flex:1" onclick="if(window.innerWidth<900)closeNavDrawer();pwForm()">Password</button>' +
+        '<button type="button" class="ghost" style="padding:6px 8px;font-size:12px;flex:1;color:var(--due)" onclick="logout()">Log out</button>' +
+      '</div>';
     } else {
-      footer.innerHTML = '<div class="sub" style="font-size:12px;text-align:center">Offline / Local Mode</div>';
+      footer.innerHTML = '<div class="row" style="gap:6px">' +
+        themeBtn +
+        '<div class="sub" style="font-size:11px;flex:1;text-align:center;align-self:center">Local / Offline</div>' +
+      '</div>';
     }
   }
 }
 
-// Touch swipe gestures on the screen to open / close drawer
+// Touch swipe gestures on the screen to open / close drawer (Mobile only)
 document.addEventListener("touchstart", function(e){
+  if(window.innerWidth >= 900) return;
   if(e.touches.length !== 1) return;
   var touch = e.touches[0];
   navTouchStartX = touch.clientX;
@@ -947,6 +1229,7 @@ document.addEventListener("touchstart", function(e){
 }, { passive: true });
 
 document.addEventListener("touchmove", function(e){
+  if(window.innerWidth >= 900) return;
   if(!navIsSwiping || e.touches.length !== 1) return;
   var touch = e.touches[0];
   navTouchCurrentX = touch.clientX;
@@ -980,6 +1263,7 @@ document.addEventListener("touchmove", function(e){
 }, { passive: true });
 
 document.addEventListener("touchend", function(e){
+  if(window.innerWidth >= 900) return;
   if(!navIsSwiping) return;
   navIsSwiping = false;
   var drawer = document.getElementById("navDrawer");
@@ -1001,12 +1285,29 @@ document.addEventListener("touchend", function(e){
   }
 }, { passive: true });
 
+function getCurrentRatesPill(){
+  var msRate = 98.88, hsdRate = 90.14;
+  if(S && S.rates && S.rates.length){
+    var ms = S.rates.slice().reverse().find(function(r){ return (r.fuel||'').toUpperCase().includes('MS') || (r.fuel||'').toUpperCase().includes('PETROL'); });
+    if(ms && ms.rate) msRate = Number(ms.rate);
+    var hsd = S.rates.slice().reverse().find(function(r){ return (r.fuel||'').toUpperCase().includes('HSD') || (r.fuel||'').toUpperCase().includes('DIESEL'); });
+    if(hsd && hsd.rate) hsdRate = Number(hsd.rate);
+  }
+  return '<div class="desktop-rates-pill" title="Current Retail Fuel Rates">' +
+    '<span class="desktop-rate-item"><span class="dot-fuel ms"></span> Petrol: ₹' + Number(msRate).toFixed(2) + '</span>' +
+    '<span class="desktop-rate-sep">/</span>' +
+    '<span class="desktop-rate-item"><span class="dot-fuel hsd"></span> Diesel: ₹' + Number(hsdRate).toFixed(2) + '</span>' +
+  '</div>';
+}
+
 function nav(){
   var tabs = getNavTabsList();
-  var curItem = tabs.find(function(t){ return t.id === tab; }) || tabs[0] || { id: "ledger", label: "Ledger" };
-  var pumpTitle = (S&&S.biz&&S.biz.name) ? S.biz.name : "Petrol Pump";
+  var curItem = tabs.find(function(t){ return t.id === tab; }) || tabs[0] || { id: "ledger", label: "Ledger", group: "Sales" };
+  var pumpTitle = (S&&S.biz&&S.biz.name) ? S.biz.name : "Rituraj Petrolieum";
 
-  // 1. Mobile Touch App Topbar (Visible on screens < 768px)
+  setTimeout(renderDrawerContent, 0);
+
+  // 1. Mobile Touch App Topbar (Visible on screens < 900px)
   var mobileTopbar = '<div class="app-topbar noprint">' +
     '<div class="app-topbar-left">' +
       '<button type="button" class="app-topbar-btn" onclick="openNavDrawer()" aria-label="Open navigation menu">' +
@@ -1034,15 +1335,26 @@ function nav(){
     '</div>' +
   '</div>';
 
-  // 2. Desktop Button-based Grid Switcher (Visible on desktop >= 768px)
-  var desktopGrid = '<div class="desktop-nav-grid noprint" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:6px;margin-bottom:12px">' +
-    tabs.map(function(t){
-      var labelHtml = esc(t.label) + (t.badge ? (' ' + t.badge) : '');
-      return '<button style="padding:10px 0;font-size:13px;min-width:0" class="'+(tab==t.id?'':'ghost')+'" onclick="selectNavTab(\''+t.id+'\')">'+labelHtml+'</button>';
-    }).join("") +
+  // 2. Option 1 Desktop Header Topbar (Visible on screens >= 900px)
+  var desktopTopbar = '<div class="desktop-topbar noprint">' +
+    '<div class="desktop-topbar-left">' +
+      '<div class="desktop-topbar-icon">' + (curItem.icon || '⛽') + '</div>' +
+      '<div>' +
+        '<div class="desktop-topbar-breadcrumb">' + esc(pumpTitle) + ' <span style="opacity:0.4">/</span> <span>' + esc(curItem.group || 'Module') + '</span></div>' +
+        '<div class="desktop-topbar-title">' + esc(curItem.label) + '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="desktop-topbar-right">' +
+      getCurrentRatesPill() +
+      '<div class="desktop-date-pill">' +
+        '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>' +
+        '<span>' + today() + '</span>' +
+      '</div>' +
+      (curItem.badge || '') +
+    '</div>' +
   '</div>';
 
-  return ubar() + mobileTopbar + desktopGrid;
+  return mobileTopbar + desktopTopbar;
 }
 function renderInv(){
 var invSub = window.INV_SUBTAB || "invoices";
@@ -1062,8 +1374,8 @@ if(!S.inv.length)h+='<div class="empty">No invoices yet. Create one for a lubric
 S.inv.slice().reverse().forEach(function(i){h+='<div class="cust" tabindex="0" onclick="iv='+i.id+';renderInv()"><div class="row"><b>'+esc(i.no)+'</b><span class="amt" style="flex:none">'+m2(i.total)+'</span></div><div class="sub">'+esc(i.name)+' \u00b7 '+i.d+' \u00b7 '+(i.mode=="credit"?"On credit":esc(i.mode))+'</div></div>'})}
 document.getElementById("app").innerHTML=h}
 function newInv(){if(!S.biz.name||S.biz.gst.length!=15){bizForm(true);return}dr={cust:"0",wname:"",wgst:"",lines:[{n:"",q:1,r:""}],mode:"Cash"};renderInv()}
-function bizForm(go){var b=S.biz;openM('<h2>Business details</h2><div class="sub">Shown on every invoice</div><label>Pump name<input id="f1" value="'+esc(b.name)+'"></label><label>Address<input id="f2" value="'+esc(b.addr)+'"></label><label>GSTIN (15 characters)<input id="f3" value="'+esc(b.gst)+'"></label><div class="err" id="er"></div><div class="row"><button class="ghost" onclick="close()">Cancel</button><button onclick="saveBiz('+(go?1:0)+')">Save details</button></div>')}
-function saveBiz(go){var g=v("f3").toUpperCase();if(!v("f1"))return er("Enter the pump name.");if(g.length!=15)return er("GSTIN must be 15 characters.");S.biz={name:v("f1"),addr:v("f2"),gst:g};save();close();if(go)newInv();else renderInv()}
+function bizForm(go){var b=S.biz;openM('<h2>Business details</h2><div class="sub">Shown on every invoice and WhatsApp statement</div><label>Pump name<input id="f1" value="'+esc(b.name)+'"></label><label>Address<input id="f2" value="'+esc(b.addr)+'"></label><label>GSTIN (15 characters)<input id="f3" value="'+esc(b.gst)+'"></label><label>Station UPI ID for WhatsApp Reminders (e.g. rituraj@okaxis)<input id="f4" placeholder="e.g. rituraj@okaxis" value="'+esc(b.upi||"")+'"></label><div class="err" id="er"></div><div class="row"><button class="ghost" onclick="close()">Cancel</button><button onclick="saveBiz('+(go?1:0)+')">Save details</button></div>')}
+function saveBiz(go){var g=v("f3").toUpperCase();if(!v("f1"))return er("Enter the pump name.");if(g.length!=15)return er("GSTIN must be 15 characters.");S.biz={name:v("f1"),addr:v("f2"),gst:g,upi:v("f4")};save();close();if(go)newInv();else renderInv()}
 function draftHtml(){var h='<h1>New invoice</h1><label>Customer<select onchange="dr.cust=this.value;dr.mode=\'Cash\';renderInv()"><option value="0">Walk-in customer</option>'+S.c.filter(function(c){return c.active!==false}).map(function(c){return '<option value="'+c.id+'"'+(dr.cust==c.id?' selected':'')+'>'+esc(c.name)+'</option>'}).join("")+'</select></label>';
 if(dr.cust=="0")h+='<label>Name (optional)<input value="'+esc(dr.wname)+'" oninput="dr.wname=this.value"></label><label>Customer GSTIN (optional)<input value="'+esc(dr.wgst)+'" oninput="dr.wgst=this.value.toUpperCase();upd()"></label>';
 h+='<label style="margin-top:16px">Items (rate excludes GST)</label>';
@@ -1085,7 +1397,39 @@ function invHtml(id){var i=S.inv.filter(function(x){return x.id==id})[0],b=S.biz
 var h='<div class="btns noprint"><button class="ghost" onclick="iv=null;renderInv()">Back</button><button onclick="window.print()">Print invoice</button>'+(i.phone?'<button class="ghost" onclick="shareInv('+i.id+')">Share on WhatsApp</button>':'')+'</div><div class="tbl" style="padding:14px"><b style="font-size:18px">'+esc(b.name)+'</b><div class="sub">'+esc(b.addr)+'</div><div class="sub">GSTIN '+esc(b.gst)+'</div><h2 style="margin:14px 0 2px">Tax invoice '+esc(i.no)+'</h2><div class="sub">Date '+i.d+'</div><div style="margin:10px 0"><b>Bill to:</b> '+esc(i.name)+(i.gst?'<div class="sub">GSTIN '+esc(i.gst)+'</div>':'')+'</div><table><tr><th>Item</th><th class="r">Qty</th><th class="r">Rate</th><th class="r">Amount</th></tr>';
 i.lines.forEach(function(l){h+='<tr><td>'+esc(l.n)+'</td><td class="r">'+l.q+'</td><td class="r">'+m2(l.r)+'</td><td class="r">'+m2(l.q*l.r)+'</td></tr>'});
 h+=T("Taxable value",m2(i.t))+(i.ig?T("IGST 18%",m2(i.x)):T("CGST 9%",m2(r2(i.x/2)))+T("SGST 9%",m2(r2(i.x/2))))+T("Round off",m2(i.ro))+T("Total",m2(i.total),1)+'</table><div class="sub" style="margin-top:10px">Payment: '+(i.mode=="credit"?"On credit":esc(i.mode))+'</div></div>';return h}
-function shareInv(id){var i=S.inv.filter(function(x){return x.id==id})[0],t=S.biz.name+"\nTax invoice "+i.no+" ("+i.d+")\n";i.lines.forEach(function(l){t+=l.n+" x "+l.q+" = "+m2(l.q*l.r)+"\n"});t+=(i.ig?"IGST 18%: ":"CGST + SGST 18%: ")+m2(i.x)+"\nTotal: "+m2(i.total);window.open("https://wa.me/91"+i.phone.slice(-10)+"?text="+encodeURIComponent(t),"_blank")}
+function shareInv(id){
+  var i=S.inv.filter(function(x){return x.id==id})[0];
+  if(!i) return;
+  var bName = (S&&S.biz&&S.biz.name) ? S.biz.name : "Rituraj Petrolieum";
+  var bAddr = (S&&S.biz&&S.biz.addr) ? S.biz.addr : "";
+  var bGst = (S&&S.biz&&S.biz.gst) ? ("GSTIN: " + S.biz.gst) : "";
+  var upi = (S&&S.biz&&S.biz.upi) ? ("\n📲 Pay via UPI: " + S.biz.upi) : "";
+  var lines = (i.lines||[]).map(function(l){
+    return "• " + l.n + " — " + l.q + " × " + m2(l.r) + " = " + m2(l.q * l.r);
+  }).join("\n");
+  var taxLabel = i.ig ? "IGST (18%)" : "CGST + SGST (18%)";
+  var msg = [
+    "*" + bName + "*",
+    bAddr ? ("📍 " + bAddr) : "",
+    bGst,
+    "",
+    "🧾 *Tax Invoice #" + i.no + "*",
+    "Date: " + i.d,
+    "Billed to: *" + i.name + "*" + (i.gst ? (" (GSTIN: " + i.gst + ")") : ""),
+    "",
+    "*Item Details:*",
+    lines,
+    "",
+    taxLabel + ": " + m2(i.x),
+    "Total Invoice Amount: *" + m2(i.total) + "*",
+    "Payment Mode: " + (i.mode === "credit" ? "On Credit Ledger" : esc(i.mode)),
+    upi,
+    "",
+    "Thank you for your visit! ⛽🙏"
+  ].filter(function(l){ return l !== null && l !== ""; }).join("\n");
+
+  openWaLink(i.phone, msg);
+}
 function itm(id){return S.items.filter(function(x){return x.id==id})[0]}
 function pick(i,id){var l=dr.lines[i];if(id){var t=itm(id);l.it=t.id;l.n=t.name;l.r=t.sell}else l.it=null;renderInv()}
 var stkTab="all",TK_STOCK_CACHE=null;
@@ -2417,7 +2761,7 @@ document.getElementById("rf1").onchange=function(){var f=this.files[0];if(!f)ret
 function doRestore(){var o;try{o=JSON.parse(document.getElementById("rt").value)}catch(e){return er("This isn't a valid backup. Choose the .json file or paste the full backup text.")}
 if(!o||!Array.isArray(o.c)||!Array.isArray(o.inv))return er("This backup is missing customer or invoice data.");
 ask("Replace all current data with this backup?",function(){S=o;S.items=S.items||[];S.sup=S.sup||[];S.bk=S.bk||[];S.ob=S.ob||{Cash:0,Bank:0,UPI:0};S.biz=S.biz||{name:"",addr:"",gst:""};save();SRV?pullDuty(render):render()})}
-function localStart(){S=load();S.inv=S.inv||[];S.bk=S.bk||[];S.ob=S.ob||{Cash:20000,Bank:100000,UPI:0};S.sup=S.sup||[{id:1,name:"Oil company depot",kind:"Oil company",phone:"",e:[{d:dago(8),t:"pay",n:"Bank transfer",a:500000},{d:dago(4),t:"bill",n:"MS and HSD tanker",a:320000}]},{id:2,name:"Lube dealer",kind:"Dealer",phone:"",e:[{d:dago(6),t:"bill",n:"Oil and coolant stock",a:18000}]}];S.items=S.items||[{id:1,name:"Engine oil 1 L",unit:"piece",sell:520,buy:430,stock:24,low:6},{id:2,name:"Coolant 1 L",unit:"piece",sell:260,buy:200,stock:5,low:6},{id:3,name:"Gear oil 500 ml",unit:"piece",sell:310,buy:250,stock:12,low:4}];S.biz=S.biz||{name:"",addr:"",gst:""};render()}
+function localStart(){document.body.classList.add("logged-in");renderDrawerContent();S=load();S.inv=S.inv||[];S.bk=S.bk||[];S.ob=S.ob||{Cash:20000,Bank:100000,UPI:0};S.sup=S.sup||[{id:1,name:"Oil company depot",kind:"Oil company",phone:"",e:[{d:dago(8),t:"pay",n:"Bank transfer",a:500000},{d:dago(4),t:"bill",n:"MS and HSD tanker",a:320000}]},{id:2,name:"Lube dealer",kind:"Dealer",phone:"",e:[{d:dago(6),t:"bill",n:"Oil and coolant stock",a:18000}]}];S.items=S.items||[{id:1,name:"Engine oil 1 L",unit:"piece",sell:520,buy:430,stock:24,low:6},{id:2,name:"Coolant 1 L",unit:"piece",sell:260,buy:200,stock:5,low:6},{id:3,name:"Gear oil 500 ml",unit:"piece",sell:310,buy:250,stock:12,low:4}];S.biz=S.biz||{name:"",addr:"",gst:""};render()}
 
 // ---- AI Forensic Audit Feature
 var AUDIT_DATA=null, AUDIT_LOADING=false, AUDIT_RANGE="30", AUDIT_FROM="", AUDIT_TO="";
@@ -2760,8 +3104,10 @@ function sect(t){return '<h1 style="margin:16px 0 6px;color:var(--ink);font-size
 function wnav(){
   var T=[["wduty","Duty","loadW","Duty & Shift"],["handover","Handovers","renderHandover","Handover History"],["wdip","Tank dip","loadDip","Tank Dip"],["mypay","My pay","loadMyPay","My Pay"]];
   var curW = T.find(function(t){ return tab==t[0] || (tab=="wassign"&&t[0]=="wduty"); }) || T[0];
-  var pumpTitle = (S&&S.biz&&S.biz.name) ? S.biz.name : "Petrol Pump";
-  
+  var pumpTitle = (S&&S.biz&&S.biz.name) ? S.biz.name : "Rituraj Petrolieum";
+
+  setTimeout(renderDrawerContent, 0);
+
   var workerMobileTopbar = '<div class="app-topbar noprint">' +
     '<div class="app-topbar-left">' +
       '<button type="button" class="app-topbar-btn" onclick="openNavDrawer()" aria-label="Open navigation menu">' +
@@ -2788,13 +3134,24 @@ function wnav(){
     '</div>' +
   '</div>';
 
-  var workerDesktopGrid = '<div class="desktop-nav-grid noprint" style="display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:12px">' +
-    T.map(function(t){
-      return '<button style="padding:10px 4px;font-size:13px" class="'+((tab==t[0]||(tab=="wassign"&&t[0]=="wduty"))?'':'ghost')+'" onclick="tab=\''+t[0]+'\';'+t[2]+'()">'+t[1]+'</button>';
-    }).join("") +
+  var workerDesktopTopbar = '<div class="desktop-topbar noprint">' +
+    '<div class="desktop-topbar-left">' +
+      '<div class="desktop-topbar-icon">👷</div>' +
+      '<div>' +
+        '<div class="desktop-topbar-breadcrumb">' + esc(pumpTitle) + ' <span style="opacity:0.4">/</span> <span>Worker Duty</span></div>' +
+        '<div class="desktop-topbar-title">' + esc(curW[3]||curW[1]) + '</div>' +
+      '</div>' +
+    '</div>' +
+    '<div class="desktop-topbar-right">' +
+      getCurrentRatesPill() +
+      '<div class="desktop-date-pill">' +
+        '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>' +
+        '<span>' + today() + '</span>' +
+      '</div>' +
+    '</div>' +
   '</div>';
 
-  return workerMobileTopbar + workerDesktopGrid;
+  return workerMobileTopbar + workerDesktopTopbar;
 }
 var CASH_DENOMS=[500,200,100,50,20,10];
 var autoSaveTimer=null,autoSavePending=false,autoSaveInFlight=false,autoSaveLastText="",autoSaveLastColor="";
@@ -4273,7 +4630,7 @@ function generateDutyPDFDoc(d) {
   toast("PDF handover receipt downloaded: " + safeFileName);
 }
 // ---- Worker
-function loadW(){Promise.all([api("GET","/api/duty/current"),fetchCL()]).then(function(r){WD=r[0];renderW()}).catch(function(e){document.getElementById("app").innerHTML=ubar()+wnav()+'<div class="empty">Could not load. '+esc(e.error||"Check your connection.")+'</div>'})}
+function loadW(){document.body.classList.add("logged-in");renderDrawerContent();Promise.all([api("GET","/api/duty/current"),fetchCL()]).then(function(r){WD=r[0];renderW()}).catch(function(e){document.getElementById("app").innerHTML=ubar()+wnav()+'<div class="empty">Could not load. '+esc(e.error||"Check your connection.")+'</div>'})}
 function renderW(){if(WD.duty){DF=fromDuty(WD.duty,{modes:WD.modes,cats:WD.cats,items:WD.items},"worker");return renderDF()}
 var h=ubar()+wnav()+'<h1>My duty</h1>'
   +'<div class="cust" style="cursor:default;margin-bottom:14px;padding:12px">'
@@ -4769,23 +5126,22 @@ function delPay(id){ask("Delete this entry?",function(){api("DELETE","/api/payro
 var SUM=null;
 function sumForm(){api("GET","/api/daily-summary?d="+DD).then(function(r){SUM=r;openM('<h2>Daily summary</h2><div class="sub">For '+DD+'. Check it, then send it on WhatsApp.</div><textarea id="st" style="width:100%;height:230px;margin-top:8px;font:13px/1.4 monospace;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);padding:8px"></textarea><label>Send to WhatsApp number (leave blank to choose in WhatsApp)<input id="sn" inputmode="tel" value="'+esc(r.to)+'"></label><div class="err" id="er"></div><div class="row" style="margin-top:12px"><button class="ghost" onclick="close()">Close</button><button class="ghost" onclick="copySum()">Copy</button><button onclick="sendSum()">Open WhatsApp</button></div>');document.getElementById("st").value=r.text}).catch(function(e){badge(e.error||"Could not build the summary.")})}
 function copySum(){var t=document.getElementById("st");t.select();try{document.execCommand("copy");er("Copied.")}catch(e){er("Select the text and copy it.")}}
-function sendSum(){var n=v("sn").replace(/\D/g,"").slice(-10),t=document.getElementById("st").value;window.open("https://wa.me/"+(n.length==10?"91"+n:"")+"?text="+encodeURIComponent(t),"_blank")}
-var BK=null,BT="Dear {name}, your outstanding balance is {amount}. Please clear it at your earliest convenience. Thank you.";
+function sendSum(){var raw=v("sn"),t=document.getElementById("st").value;openWaLink(raw,t)}
+var BK=null,BT="Namaste {name} 🙏, a gentle reminder from our petrol pump: your current outstanding credit balance is {amount}. Kindly clear it at your earliest convenience. Thank you ⛽";
 function bulkForm(){var L=S.c.filter(function(c){return due(c)>0}).sort(function(a,b){return due(b)-due(a)});
 if(!L.length)return openM('<h2>No dues</h2><div class="sub">No customer owes anything right now.</div><div class="btns"><button onclick="close()">Close</button></div>');
 BK={sent:{},ids:L.map(function(c){return c.id})};var tot=L.reduce(function(s,c){return s+due(c)},0);
-openM('<h2>Payment reminders</h2><div class="sub">'+L.length+' customer'+(L.length>1?'s owe ':' owes ')+inr(tot)+' in total. WhatsApp opens one chat at a time: tap Send for each customer, or Open next to go down the list.</div><label>Message<textarea id="bm" style="width:100%;height:90px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);padding:8px;font:inherit">'+esc(BT)+'</textarea></label><div class="sub">{name} and {amount} are filled in for each customer.</div><div id="bl" style="margin-top:10px"></div><div class="row" style="margin-top:12px"><button class="ghost" onclick="close();render()">Close</button><button onclick="bulkNext()">Open next</button></div>');
-bulkList()}
-function bulkList(){var h="";BK.ids.forEach(function(id){var c=find(id);h+='<div class="row" style="margin-top:8px"><span><b>'+esc(c.name)+'</b><div class="sub">'+inr(due(c))+(c.reminded?' \u00b7 last reminded '+c.reminded.slice(5):'')+'</div></span><button class="'+(BK.sent[id]?'ghost':'')+'" style="flex:none;padding:8px 12px" onclick="bulkSend('+id+')">'+(BK.sent[id]?'Sent \u2713':'Send')+'</button></div>'});document.getElementById("bl").innerHTML=h}
-function bulkSend(id){var c=find(id);BT=document.getElementById("bm").value;var m=BT.replace(/\{name\}/g,c.name).replace(/\{amount\}/g,inr(due(c)));window.open("https://wa.me/91"+c.phone.slice(-10)+"?text="+encodeURIComponent(m),"_blank");BK.sent[id]=1;c.reminded=today();save();bulkList()}
+openM('<h2>WhatsApp Payment Reminders</h2><div class="sub">'+L.length+' customer'+(L.length>1?'s owe ':' owes ')+inr(tot)+' in total. WhatsApp opens one chat at a time: tap Send for each customer, or Open next to proceed through the queue.</div><label>Message template<textarea id="bm" style="width:100%;height:85px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);padding:8px;font:inherit">'+esc(BT)+'</textarea></label><div class="sub" style="font-size:11px">{name} and {amount} are automatically filled in for each fleet account.</div><div id="bl" style="margin-top:10px;max-height:260px;overflow-y:auto;padding-right:4px"></div><div class="row" style="margin-top:14px"><button class="ghost" onclick="close();render()">Close</button><button onclick="bulkNext()">Open next</button></div>');bulkList()}
+function bulkList(){var h="";BK.ids.forEach(function(id){var c=find(id);h+='<div class="row" style="margin-top:8px;background:var(--bg);padding:8px 10px;border-radius:8px"><span style="min-width:0"><b>'+esc(c.name)+'</b><div class="sub" style="font-size:12px;color:var(--due);font-weight:700">'+inr(due(c))+(c.phone?' · +91 '+c.phone.slice(-10):' · (no phone)')+(c.reminded?' · last reminded '+c.reminded.slice(5):'')+'</div></span><button class="'+(BK.sent[id]?'ghost':'')+'" style="flex:none;padding:8px 14px;background:'+(BK.sent[id]?'transparent':'#25D366')+';color:'+(BK.sent[id]?'var(--mute)':'#fff')+';border:'+(BK.sent[id]?'1px solid var(--line)':'0')+'" onclick="bulkSend('+id+')">'+(BK.sent[id]?'Sent \u2713':'Send')+'</button></div>'});document.getElementById("bl").innerHTML=h}
+function bulkSend(id){var c=find(id);BT=document.getElementById("bm").value;var m=BT.replace(/\{name\}/g,c.name).replace(/\{amount\}/g,inr(due(c)));openWaLink(c.phone,m);BK.sent[id]=1;c.reminded=today();save();bulkList()}
 function bulkNext(){var id=BK.ids.filter(function(i){return !BK.sent[i]})[0];if(id==null)return;bulkSend(id)}
 function ubar(){return SRV&&ME?'<div class="row noprint" style="margin-bottom:10px;gap:6px"><span class="sub" style="flex:1">'+esc(ME.name)+' ('+ME.role+')</span><button class="ghost" style="padding:5px 10px;flex:none" onclick="pwForm()">Password</button><button class="ghost" style="padding:5px 10px;flex:none" onclick="logout()">Log out</button></div>':''}
 function boot(){api("GET","/api/me").then(function(m){SRV=true;ME=m.user;if(!ME){TOKEN="";try{localStorage.removeItem("petrol-token")}catch(e){}return authView(m.setup)}start()}).catch(function(){SRV=false;localStart()})}
-function start(){view=null;if(!ME)return authView(false);if(ME.role=="worker"){tab="wduty";return loadW()}tab="ledger";
+function start(){view=null;if(!ME)return authView(false);document.body.classList.add("logged-in");renderDrawerContent();if(ME.role=="worker"){tab="wduty";return loadW()}tab="ledger";
 api("GET","/api/state").then(function(r){VER=r.ver;S=r.state||emptyS();["c","inv","items","sup","bk","nozzles","tanks","deliv","rates","expcats","paymodes"].forEach(function(k){S[k]=S[k]||[]});S.ob=S.ob||{Cash:0,Bank:0,UPI:0};S.biz=S.biz||{name:"",addr:"",gst:""};pullDuty(render)}).catch(function(e){badge("Could not load data: "+(e.error||"check your connection"));if(!S)S=emptyS();render()})}
 function fillAuth(m,p){var e1=document.getElementById("a1"),e2=document.getElementById("a2");if(e1)e1.value=m;if(e2)e2.value=p||"NewPass123";var erEl=document.getElementById("er");if(erEl)erEl.textContent=""}
 function clearLockout(){api("POST","/api/clear-lockout").then(function(){var erEl=document.getElementById("er");if(erEl)erEl.innerHTML='<span style="color:var(--ok);font-weight:600">Lockout reset! You can try logging in now.</span>';toast("Lockout reset. Try logging in now.")}).catch(function(){toast("Lockout reset.")})}
-function authView(setup){var h='<h1 style="font-size:22px;color:var(--ink);font-weight:800;margin:20px 0 4px">Petrol pump manager</h1><div class="sub">'+(setup?'Create the owner account to get started.':'Log in with your mobile number and password.')+'</div>'+(setup?'<label>Your name<input id="a0"></label>':'')+'<label>Mobile number<input id="a1" inputmode="tel" autocomplete="username"></label><label>Password<input id="a2" type="password" autocomplete="'+(setup?'new-password':'current-password')+'"></label><div class="err" id="er"></div><button style="width:100%;margin-top:6px" onclick="doAuth('+(setup?1:0)+')">'+(setup?'Create owner account':'Log in')+'</button>';
+function authView(setup){document.body.classList.remove("logged-in");var h='<h1 style="font-size:22px;color:var(--ink);font-weight:800;margin:20px 0 4px">Petrol pump manager</h1><div class="sub">'+(setup?'Create the owner account to get started.':'Log in with your mobile number and password.')+'</div>'+(setup?'<label>Your name<input id="a0"></label>':'')+'<label>Mobile number<input id="a1" inputmode="tel" autocomplete="username"></label><label>Password<input id="a2" type="password" autocomplete="'+(setup?'new-password':'current-password')+'"></label><div class="err" id="er"></div><button style="width:100%;margin-top:6px" onclick="doAuth('+(setup?1:0)+')">'+(setup?'Create owner account':'Log in')+'</button>';
 if(!setup){
 h+='<div style="margin-top:16px;padding:12px;background:var(--card);border:1px solid var(--line);border-radius:10px">';
 h+='<div style="font-size:12px;font-weight:700;color:var(--mute);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:8px">Quick Login (Password: NewPass123)</div>';
@@ -4799,7 +5155,7 @@ h+='</div>';
 }
 document.getElementById("app").innerHTML=h;document.getElementById("a2").onkeydown=function(e){if(e.key=="Enter")doAuth(setup?1:0)}}
 function doAuth(setup){var b={mobile:v("a1"),password:document.getElementById("a2").value};if(setup)b.name=v("a0");api("POST",setup?"/api/setup":"/api/login",b).then(function(r){if(r.token){TOKEN=r.token;try{localStorage.setItem("petrol-token",TOKEN)}catch(e){}}ME=r.user;start()}).catch(function(e){var msg=(e&&e.error)||"Could not log in. Check your connection.";var erEl=document.getElementById("er");if(erEl){if(msg.indexOf("attempts")!==-1||msg.indexOf("Wait")!==-1||msg.indexOf("15 minutes")!==-1){erEl.innerHTML=esc(msg)+'<div style="margin-top:6px"><button type="button" class="ghost" style="padding:4px 10px;font-size:12px;color:var(--ok);border-color:var(--ok)" onclick="clearLockout()">Unlock Account Now</button></div>'}else{erEl.textContent=msg}}})}
-function logout(){api("POST","/api/logout").then(function(){TOKEN="";try{localStorage.removeItem("petrol-token")}catch(e){}location.reload()}).catch(function(){TOKEN="";try{localStorage.removeItem("petrol-token")}catch(e){}location.reload()})}
+function logout(){document.body.classList.remove("logged-in");api("POST","/api/logout").then(function(){TOKEN="";try{localStorage.removeItem("petrol-token")}catch(e){}location.reload()}).catch(function(){TOKEN="";try{localStorage.removeItem("petrol-token")}catch(e){}location.reload()})}
 function pwForm(){openM('<h2>Change password</h2><label>Current password<input id="p1" type="password"></label><label>New password (6+ characters)<input id="p2" type="password"></label><div class="err" id="er"></div><div class="row"><button class="ghost" onclick="close()">Cancel</button><button onclick="savePw()">Change password</button></div>')}
 function savePw(){api("POST","/api/password",{old:document.getElementById("p1").value,password:document.getElementById("p2").value}).then(function(){openM('<h2>Password changed</h2><div class="btns"><button onclick="close()">Close</button></div>')}).catch(function(e){er(e.error||"Could not change the password.")})}
 function loadCredit(){Promise.all([api("GET","/api/customers"),api("GET","/api/my-credit-sales")]).then(function(r){CL=r[0];MY=r[1];renderCredit()}).catch(function(e){document.getElementById("app").innerHTML=ubar()+'<div class="empty">Could not load. '+esc(e.error||"Check your connection.")+'</div>'})}

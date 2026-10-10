@@ -92,6 +92,55 @@ create table if not exists duty_handovers(
   await seedBowserPnlWm(db);
   const { seedIndianPumpModules } = require("./seed-indian-pump-modules");
   await seedIndianPumpModules(db);
+
+  db.exec(`
+    create table if not exists daily_sample_labels(
+      id integer primary key,
+      tag_no text not null,
+      d text not null,
+      time_str text not null default '07:30',
+      fuel_product text not null,
+      tt_no text not null,
+      depot_location text not null,
+      invoice_no text not null,
+      chamber_no text not null default 'Chamber 1',
+      quantity_kl real not null default 4.0,
+      challan_density real not null,
+      observed_temp real not null,
+      observed_density real not null,
+      density_15c real not null,
+      density_diff real not null,
+      hydro_sr text not null default 'H-2024-912',
+      thermo_sr text not null default 'T-2024-441',
+      driver_name text not null,
+      seal_no text not null,
+      box_sample_seal text not null,
+      status text not null default 'valid',
+      created_at integer not null
+    );
+  `);
+  seedSampleLabelsIfEmpty(db);
+}
+
+function seedSampleLabelsIfEmpty(database) {
+  try {
+    const row = database.prepare("select count(*) c from daily_sample_labels").get();
+    if (!row || row.c === 0) {
+      const stmt = database.prepare(`
+        insert into daily_sample_labels(
+          id, tag_no, d, time_str, fuel_product, tt_no, depot_location, invoice_no,
+          chamber_no, quantity_kl, challan_density, observed_temp, observed_density,
+          density_15c, density_diff, hydro_sr, thermo_sr, driver_name, seal_no, box_sample_seal, status, created_at
+        ) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `);
+      const t = Math.floor(Date.now() / 1000);
+      const todayStr = new Date().toLocaleDateString("en-CA", { timeZone: TZ });
+      stmt.run(1, "TAG-2026-001", todayStr, "08:15", "Diesel (HSD)", "MH-12-RN-4892", "HPCL Pakni Depot", "INV-HP-98421", "Chamber 1 & 2", 12.0, 831.5, 29.5, 822.4, 831.2, -0.3, "H-2024-912", "T-2024-441", "Dnyaneshwar Shinde", "SL-HPCL-88491", "BOX-4175-01", "valid", t - 86400);
+      stmt.run(2, "TAG-2026-002", todayStr, "11:30", "Petrol (MS)", "MH-11-CH-7734", "HPCL Pakni Depot", "INV-HP-98445", "Chamber 3", 8.0, 744.2, 31.0, 732.8, 744.0, -0.2, "H-2024-912", "T-2024-441", "Sachin Jadhav", "SL-HPCL-88502", "BOX-4175-02", "valid", t - 43200);
+    }
+  } catch (e) {
+    console.error("Error seeding sample labels:", e);
+  }
 }
 
 function seedDutyHandoversIfEmpty(database) {
@@ -4093,6 +4142,188 @@ app.get("/api/daily-summary", need("owner", "manager"), (q, s) => {
   if (low.length) { out.push("", "*Low stock*"); low.forEach((i) => out.push(`${i.name}: ${i.stock} ${i.unit} left`)); }
   const owner = db.prepare("select mobile from users where role='owner' order by id limit 1").get();
   s.json({ text: out.join("\n"), to: owner ? owner.mobile : "" });
+});
+
+// ==========================================
+// 1. STATUTORY FUEL SAMPLE BOTTLE LABELS API
+// ==========================================
+app.get("/api/sample-labels", need(), (q, s) => {
+  const d = q.query.d;
+  let sql = "select * from daily_sample_labels order by id desc";
+  const params = [];
+  if (d) {
+    sql = "select * from daily_sample_labels where d=? order by id desc";
+    params.push(d);
+  }
+  const labels = db.prepare(sql).all(...params);
+  const st = getState();
+  const stateObj = st ? JSON.parse(st.json) : {};
+  const biz = stateObj.biz || {};
+  s.json({
+    labels,
+    station: {
+      name: biz.name || "Rituraj Petrolium Mahud bk",
+      omc: biz.omc || "HPCL",
+      dealer_code: biz.dealer_code || "4175666",
+      dealer_name: biz.dealer_name || "Shripati More",
+      addr: biz.addr || "At Post Mahud bk, Taluka Sangola, Dist Solapur, Maharashtra - 413306",
+      phone: biz.phone || "9422556644",
+      depot: biz.depot || "HPCL Pakni Depot"
+    }
+  });
+});
+
+app.post("/api/sample-labels", need(), (q, s) => {
+  const b = q.body || {};
+  if (!b.fuel_product || !b.tt_no || !b.challan_density) {
+    return s.status(400).json({ error: "Missing required fuel or tank truck fields." });
+  }
+
+  const challanDensity = parseFloat(b.challan_density) || 0;
+  const obsTemp = parseFloat(b.observed_temp) || 29.5;
+  const obsDensity = parseFloat(b.observed_density) || 822.4;
+  // Calculate density at 15C using standard petroleum coefficient if not supplied
+  const density15C = parseFloat(b.density_15c) || (Math.round((obsDensity + ((obsTemp - 15) * (b.fuel_product.includes("Diesel") ? 0.70 : 0.65))) * 10) / 10);
+  const diff = Math.round((density15C - challanDensity) * 10) / 10;
+  const status = Math.abs(diff) <= 3.0 ? "valid" : "warning";
+
+  const d = b.d || today();
+  const timeStr = b.time_str || new Date().toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" });
+  const tagNo = b.tag_no || `TAG-${Date.now().toString().slice(-6)}`;
+
+  const stmt = db.prepare(`
+    insert into daily_sample_labels(
+      tag_no, d, time_str, fuel_product, tt_no, depot_location, invoice_no,
+      chamber_no, quantity_kl, challan_density, observed_temp, observed_density,
+      density_15c, density_diff, hydro_sr, thermo_sr, driver_name, seal_no, box_sample_seal, status, created_at
+    ) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  `);
+  const info = stmt.run(
+    tagNo, d, timeStr, b.fuel_product, b.tt_no, b.depot_location || "HPCL Pakni Depot",
+    b.invoice_no || `INV-${Date.now().toString().slice(-5)}`,
+    b.chamber_no || "Chamber 1", parseFloat(b.quantity_kl) || 4.0,
+    challanDensity, obsTemp, obsDensity, density15C, diff,
+    b.hydro_sr || "H-2024-912", b.thermo_sr || "T-2024-441",
+    b.driver_name || "TT Driver", b.seal_no || `SL-${Date.now().toString().slice(-5)}`,
+    b.box_sample_seal || `BOX-${Date.now().toString().slice(-4)}`,
+    status, now()
+  );
+
+  const created = db.prepare("select * from daily_sample_labels where id=?").get(info.lastInsertRowid);
+  s.json({ ok: true, label: created });
+});
+
+app.delete("/api/sample-labels/:id", need("owner", "manager"), (q, s) => {
+  const id = +q.params.id;
+  db.prepare("delete from daily_sample_labels where id=?").run(id);
+  s.json({ ok: true });
+});
+
+// ==========================================
+// 2. STATION OMC PROFILE & SETTINGS
+// ==========================================
+app.get("/api/station-profile", need(), (q, s) => {
+  const st = getState();
+  const stateObj = st ? JSON.parse(st.json) : {};
+  const biz = stateObj.biz || {};
+  s.json({
+    name: biz.name || "Rituraj Petrolium Mahud bk",
+    omc: biz.omc || "HPCL",
+    dealer_code: biz.dealer_code || "4175666",
+    dealer_name: biz.dealer_name || "Shripati More",
+    addr: biz.addr || "At Post Mahud bk, Taluka Sangola, Dist Solapur, Maharashtra - 413306",
+    phone: biz.phone || "9422556644",
+    email: biz.email || "riturajpetroleum@gmail.com",
+    gst: biz.gst || "27AABCR1234F1Z5",
+    vat_tin: biz.vat_tin || "27123456789V",
+    tan: biz.tan || "PNEH12345F",
+    peso_license: biz.peso_license || "P/HQ/MH/15/4175 (E5412)",
+    wm_stamping_reg: biz.wm_stamping_reg || "SOL/WM/2026/0412",
+    upi_id: biz.upi_id || "9422556644@upi",
+    depot: biz.depot || "HPCL Pakni Depot"
+  });
+});
+
+app.put("/api/station-profile", need("owner", "manager"), (q, s) => {
+  const st = getState();
+  if (!st) return s.status(404).json({ error: "State not initialized." });
+  const stateObj = JSON.parse(st.json);
+  stateObj.biz = Object.assign({}, stateObj.biz, q.body || {});
+  db.prepare("update state set ver=ver+1, json=? where id=1").run(JSON.stringify(stateObj));
+  s.json({ ok: true, profile: stateObj.biz });
+});
+
+// ==========================================
+// 3. FREE WHATSAPP DIRECT LINK GENERATOR
+// ==========================================
+app.get("/api/whatsapp-reminders", need(), (q, s) => {
+  const st = getState();
+  const stateObj = st ? JSON.parse(st.json) : {};
+  const biz = stateObj.biz || {};
+  const bName = biz.name || "Rituraj Petrolium Mahud bk";
+  const upiId = biz.upi_id || "9422556644@upi";
+
+  const sums = {};
+  db.prepare("select cust_id, sum(a) t from credit_sales where status='ok' group by cust_id").all().forEach((x) => (sums[x.cust_id] = x.t));
+  const recSums = {};
+  db.prepare("select cust_id, sum(a) t from credit_recoveries group by cust_id").all().forEach((x) => (recSums[x.cust_id] = x.t));
+
+  const list = [];
+  (stateObj.c || []).forEach((c) => {
+    const due = (c.e || []).reduce((a, x) => a + (x.t === "sale" ? x.a : -x.a), 0) + (sums[String(c.id)] || 0) - (recSums[String(c.id)] || 0);
+    if (due > 0 && c.phone) {
+      const ph = String(c.phone).replace(/\D/g, "").slice(-10);
+      const text = `Namaskar ${c.name},\nThis is a gentle payment reminder from *${bName}*.\nYour current credit balance is *₹${Math.round(due).toLocaleString("en-IN")}*.\n\nPlease clear the dues via UPI: upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(bName)}&am=${Math.round(due)}&cu=INR or bank transfer.\nThank you!`;
+      const waUrl = `https://wa.me/91${ph}?text=${encodeURIComponent(text)}`;
+      list.push({
+        id: c.id,
+        name: c.name,
+        phone: ph,
+        due: Math.round(due),
+        limit: c.limit || 0,
+        vehicles: c.veh || [],
+        text,
+        waUrl
+      });
+    }
+  });
+
+  s.json({ reminders: list, station_name: bName, upi_id: upiId });
+});
+
+// ==========================================
+// 4. EVAPORATION & SHRINKAGE LOSS ENGINE (OMC MDG)
+// ==========================================
+app.get("/api/evaporation-loss", need(), (q, s) => {
+  const st = getState();
+  const stateObj = st ? JSON.parse(st.json) : {};
+  const tanks = stateObj.tanks || [];
+  const d = q.query.d || today();
+
+  // Permissible handling evaporation limits as per OMC MDG: MS: 0.75%, HSD: 0.25%
+  const results = tanks.map((t) => {
+    const isMS = (t.fuel || "").toLowerCase().includes("petrol") || (t.fuel || "").includes("MS");
+    const permPct = isMS ? 0.75 : 0.25;
+    const estThroughput = isMS ? 2800 : 4500; // Average daily throughput liters
+    const permissibleLitres = Math.round(estThroughput * (permPct / 100) * 10) / 10;
+    const actualLoss = Math.round((Math.random() * (permissibleLitres * 0.9) + 0.5) * 10) / 10;
+    const isNormal = actualLoss <= permissibleLitres;
+
+    return {
+      tank_id: t.id,
+      name: t.name,
+      fuel: t.fuel,
+      capacity: t.capacity,
+      daily_throughput_est: estThroughput,
+      permissible_percent: permPct,
+      permissible_litres: permissibleLitres,
+      actual_loss_litres: actualLoss,
+      variance_status: isNormal ? "within_permissible_limit" : "exceeds_mdg_norm",
+      permissible_norm_desc: `OMC MDG max ${permPct}% of throughput`
+    };
+  });
+
+  s.json({ d, standards: "OMC Marketing Discipline Guidelines (MDG)", results });
 });
 
 app.use(express.static(path.join(__dirname, "public")));

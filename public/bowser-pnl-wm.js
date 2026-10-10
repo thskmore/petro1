@@ -813,6 +813,7 @@
     if (ME && ME.role === "owner") {
       h += '<button onclick="openDealerCommissionsModal()" class="ghost" style="font-size:13px">⚙️ Dealer Commission Rates</button>';
     }
+    h += '<button onclick="openOperatingPnLBreakdownModal()" class="ghost" style="font-size:13px;font-weight:700;color:var(--btn)">📊 Operating Heads & Margins</button>';
     h += '<button onclick="openLogDailyOverheadsModal()" class="ghost" style="font-size:13px">📝 Log Daily Expenses</button>';
     h += '<button class="ghost" onclick="printPnLReport()" style="font-size:13px">🖨️ Print P&L Statement</button>';
     h += '<button class="ghost" onclick="loadPnLData()" title="Refresh" style="padding:8px 12px">🔄</button>';
