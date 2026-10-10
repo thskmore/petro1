@@ -63,6 +63,16 @@ create table if not exists pay_items(
   id integer primary key, worker_id integer not null, month text not null,
   kind text not null check(kind in ('advance','bonus','waive','paid')),
   amount real not null, note text, d text not null, created integer not null);
+create table if not exists duty_handovers(
+  id integer primary key,
+  duty_id integer,
+  sender_id integer not null,
+  receiver_id integer not null,
+  d text not null,
+  shift text not null,
+  nozzles text,
+  note text,
+  created_at integer not null);
 `);
   if (!db.prepare("pragma table_info(credit_sales)").all().some((c) => c.name === "status"))
     db.exec("alter table credit_sales add column status text not null default 'ok'");
@@ -73,6 +83,85 @@ create table if not exists pay_items(
   addCol("duties", "assigned_by", "integer");
   addCol("credit_recoveries", "duty_id", "integer");
   addCol("credit_sales", "duty_id", "integer");
+  seedDutyHandoversIfEmpty(db);
+  const { seedPetrolOperations } = require("./seed-petrol-operations");
+  await seedPetrolOperations(db);
+  const { seedExtraPetrolOperations } = require("./seed-extra-petrol-operations");
+  await seedExtraPetrolOperations(db);
+  const { seedBowserPnlWm } = require("./seed-bowser-pnl-wm");
+  await seedBowserPnlWm(db);
+  const { seedIndianPumpModules } = require("./seed-indian-pump-modules");
+  await seedIndianPumpModules(db);
+}
+
+function seedDutyHandoversIfEmpty(database) {
+  try {
+    const row = database.prepare("select count(*) c from duty_handovers").get();
+    const count = row ? row.c : 0;
+    if (count > 0) return;
+
+    const duties = database.prepare("select d.*, u.name as worker_name from duties d join users u on u.id=d.worker_id order by d.id asc").all();
+    if (!duties || !duties.length) return;
+
+    let st = {};
+    try {
+      const sRow = database.prepare("select json from state where id=1").get();
+      if (sRow && sRow.json) st = JSON.parse(sRow.json);
+    } catch (_) {}
+    const nm = {};
+    if (st.nozzles) {
+      st.nozzles.forEach((n) => { nm[n.id] = n; });
+    }
+
+    const sampleNotes = [
+      "Cash drawer counted: ₹24,800 handed over. Diesel tank dip recorded at 162 cm.",
+      "Morning shift complete. Handed over ₹18,500 cash in locker, POS slips filed.",
+      "All active nozzles checked and calibrated. POS machine battery fully charged.",
+      "Evening peak rush handled smoothly. QR code stands clean, ₹38,200 cash tallied.",
+      "Joint tank dip verification done. Opening meter readings match dispenser counters.",
+      "Handover completed: N1 HSD and N2 HSD meter counters verified, float ₹2,000 in drawer.",
+      "Handed over to incoming staff. Testing 5L fuel returned to underground storage tank.",
+      "Night shift handover: Security lock verified, night sale cash safely deposited.",
+      "Nozzle 3 meter tested ok. Cash tallied with cashier with zero variance.",
+      "Shift exchange: POS paper roll replaced, ₹21,400 in cash bundle handed over.",
+      "Equipment checked, dispenser filters clean. Handed over ₹16,400 in physical cash.",
+      "Routine shift handover. Cash and card payments matched with register summary.",
+      "Handover notes: Received fleet card batch settlement slip and handed over to manager.",
+      "Meter readings verified jointly. Evening rush handled without fuel shortages.",
+      "Cash drawer ₹19,250 tallied. Power petrol stock verified with dipped measurement."
+    ];
+
+    const insertStmt = database.prepare(
+      "insert into duty_handovers(duty_id, sender_id, receiver_id, d, shift, nozzles, note, created_at) values(?,?,?,?,?,?,?,?)"
+    );
+
+    database.transaction(() => {
+      for (let i = 0; i < duties.length; i++) {
+        const cur = duties[i];
+        const prev = i > 0 ? duties[i - 1] : null;
+
+        let senderId = cur.assigned_by || 2;
+        if (prev && prev.worker_id && prev.worker_id !== cur.worker_id) {
+          senderId = (i % 4 === 0) ? (cur.assigned_by || 2) : prev.worker_id;
+        }
+
+        const lines = database.prepare("select nozzle_id from duty_lines where duty_id=?").all(cur.id);
+        let nozzleSummary = "";
+        if (lines && lines.length) {
+          nozzleSummary = lines.map((l) => (nm[l.nozzle_id] ? nm[l.nozzle_id].name : `Nozzle ${l.nozzle_id}`)).join(", ");
+        } else {
+          nozzleSummary = "N1 HSD, N2 HSD";
+        }
+
+        const noteText = (cur.note && cur.note.trim()) ? cur.note : sampleNotes[i % sampleNotes.length];
+        const createdAt = cur.started || (Math.floor(Date.now() / 1000) - ((duties.length - i) * 43200));
+
+        insertStmt.run(cur.id, senderId, cur.worker_id, cur.d, cur.shift, nozzleSummary, noteText, createdAt);
+      }
+    })();
+  } catch (err) {
+    console.error("Error seeding duty handovers:", err);
+  }
 }
 
 function openDuty(uid) {
@@ -595,8 +684,13 @@ app.post("/api/duties/assign", need("owner", "manager"), (q, s) => {
     lines.push({ id, opening, rate });
   }
   const dutyId = db.transaction(() => {
-    const did = db.prepare("insert into duties(worker_id,d,shift,started,assigned_by) values(?,?,?,?,?)").run(w.id, d, shift, now(), q.user.id).lastInsertRowid;
+    const customNote = String((q.body && q.body.note) || "").trim();
+    const dutyNote = customNote || `Assigned by ${q.user.name}`;
+    const did = db.prepare("insert into duties(worker_id,d,shift,started,assigned_by,note) values(?,?,?,?,?,?)").run(w.id, d, shift, now(), q.user.id, dutyNote).lastInsertRowid;
     lines.forEach((l) => db.prepare("insert into duty_lines(duty_id,nozzle_id,opening,rate) values(?,?,?,?)").run(did, l.id, l.opening, l.rate));
+    const nozzleSummary = lines.map((l) => (nm[l.id] ? nm[l.id].name : l.id)).join(", ");
+    db.prepare("insert into duty_handovers(duty_id,sender_id,receiver_id,d,shift,nozzles,note,created_at) values(?,?,?,?,?,?,?,?)")
+      .run(did, q.user.id, w.id, d, shift, nozzleSummary, customNote || `Shift duty assigned by ${q.user.name}`, now());
     return did;
   })();
   s.json({ id: dutyId });
@@ -750,6 +844,10 @@ app.post("/api/worker/assign-duty", need(), (q, s) => {
           .run(did, line.id, line.opening, line.rate);
       });
 
+      // Record in duty_handovers log
+      db.prepare("insert into duty_handovers(duty_id, sender_id, receiver_id, d, shift, nozzles, note, created_at) values(?,?,?,?,?,?,?,?)")
+        .run(did, q.user.id, tw.id, d, shift, lines.map((l) => l.name).join(", "), customNote || dutyNote, now());
+
       created.push({
         id: did,
         worker_id: tw.id,
@@ -769,6 +867,2412 @@ app.post("/api/worker/assign-duty", need(), (q, s) => {
     count: created.length,
   });
 });
+
+// Chronological Handover History log API
+app.get("/api/handover-history", need(), (q, s) => {
+  const { search, worker_id, shift, date_from, date_to } = q.query || {};
+
+  let sql = `
+    select
+      h.id,
+      h.duty_id,
+      h.sender_id,
+      us.name as sender_name,
+      us.role as sender_role,
+      h.receiver_id,
+      ur.name as receiver_name,
+      ur.role as receiver_role,
+      h.d,
+      h.shift,
+      h.nozzles,
+      h.note,
+      h.created_at,
+      d.status as duty_status,
+      d.cash,
+      d.upi,
+      d.card
+    from duty_handovers h
+    left join users us on us.id = h.sender_id
+    left join users ur on ur.id = h.receiver_id
+    left join duties d on d.id = h.duty_id
+    where 1=1
+  `;
+  const params = [];
+
+  if (worker_id && worker_id !== "all") {
+    sql += " and (h.sender_id = ? or h.receiver_id = ?)";
+    params.push(+worker_id, +worker_id);
+  }
+  if (shift && shift !== "all") {
+    sql += " and h.shift = ?";
+    params.push(shift);
+  }
+  if (date_from) {
+    sql += " and h.d >= ?";
+    params.push(date_from);
+  }
+  if (date_to) {
+    sql += " and h.d <= ?";
+    params.push(date_to);
+  }
+  if (search && String(search).trim()) {
+    const term = `%${String(search).trim()}%`;
+    sql += " and (h.note like ? or us.name like ? or ur.name like ? or h.nozzles like ?)";
+    params.push(term, term, term, term);
+  }
+
+  sql += " order by h.d desc, h.id desc limit 300";
+
+  const rows = db.prepare(sql).all(...params);
+
+  // Summary statistics
+  const totalCount = db.prepare("select count(*) c from duty_handovers").get()?.c || 0;
+  const todayDate = bizDate();
+  const todayCount = db.prepare("select count(*) c from duty_handovers where d=?").get(todayDate)?.c || 0;
+  const withNotesCount = db.prepare("select count(*) c from duty_handovers where note is not null and length(trim(note))>0").get()?.c || 0;
+  const staffList = db.prepare("select id, name, role from users where active=1 order by name").all();
+
+  s.json({
+    handovers: rows.map((r) => ({
+      id: r.id,
+      duty_id: r.duty_id,
+      sender: {
+        id: r.sender_id,
+        name: r.sender_name || `Staff #${r.sender_id}`,
+        role: r.sender_role || "staff",
+      },
+      receiver: {
+        id: r.receiver_id,
+        name: r.receiver_name || `Staff #${r.receiver_id}`,
+        role: r.receiver_role || "staff",
+      },
+      d: r.d,
+      shift: r.shift,
+      nozzles: r.nozzles || "",
+      note: r.note || "",
+      created_at: r.created_at,
+      duty_status: r.duty_status || null,
+      collected: (r.cash || 0) + (r.upi || 0) + (r.card || 0),
+    })),
+    stats: {
+      total: totalCount,
+      today: todayCount,
+      with_notes: withNotesCount,
+      staff_count: staffList.length,
+    },
+    staff: staffList,
+  });
+});
+
+app.post("/api/handover-history", need(), (q, s) => {
+  const { receiver_id, shift, note, nozzles, d } = q.body || {};
+  if (!receiver_id) return s.status(400).json({ error: "Please select incoming staff member." });
+  const receiver = db.prepare("select * from users where id=? and active=1").get(+receiver_id);
+  if (!receiver) return s.status(400).json({ error: "Selected staff member not found or inactive." });
+
+  const date = d || bizDate();
+  const shiftVal = SHIFTS.includes(shift) ? shift : "Morning";
+  const noteVal = String(note || "").trim();
+  const nozzleVal = String(nozzles || "").trim();
+
+  const id = db.prepare(
+    "insert into duty_handovers(sender_id, receiver_id, d, shift, nozzles, note, created_at) values(?,?,?,?,?,?,?)"
+  ).run(q.user.id, receiver.id, date, shiftVal, nozzleVal, noteVal, now()).lastInsertRowid;
+
+  s.json({ ok: true, id });
+});
+
+// ==========================================
+// 1. DENSITY & TANKER DECANTATION REGISTER
+// ==========================================
+const { getDensityConverted } = require("./seed-petrol-operations");
+
+app.get("/api/density-decantation", need(), (q, s) => {
+  const { tank_id, date_from, date_to, search } = q.query || {};
+  let dSql = `
+    select l.*, u.name as logged_by_name, u.role as logged_by_role
+    from daily_density_logs l
+    left join users u on u.id = l.logged_by
+    where 1=1
+  `;
+  const dParams = [];
+  if (tank_id && tank_id !== "all") {
+    dSql += " and l.tank_id = ?";
+    dParams.push(tank_id);
+  }
+  if (date_from) {
+    dSql += " and l.d >= ?";
+    dParams.push(date_from);
+  }
+  if (date_to) {
+    dSql += " and l.d <= ?";
+    dParams.push(date_to);
+  }
+  if (search && String(search).trim()) {
+    const term = `%${String(search).trim()}%`;
+    dSql += " and (l.notes like ? or l.fuel_type like ?)";
+    dParams.push(term, term);
+  }
+  dSql += " order by l.d desc, l.id desc limit 200";
+  const densityLogs = db.prepare(dSql).all(...dParams);
+
+  let decSql = `
+    select tc.*, u.name as manager_name
+    from tanker_decantations tc
+    left join users u on u.id = tc.manager_id
+    where 1=1
+  `;
+  const decParams = [];
+  if (tank_id && tank_id !== "all") {
+    decSql += " and tc.tank_id = ?";
+    decParams.push(tank_id);
+  }
+  if (date_from) {
+    decSql += " and tc.d >= ?";
+    decParams.push(date_from);
+  }
+  if (date_to) {
+    decSql += " and tc.d <= ?";
+    decParams.push(date_to);
+  }
+  if (search && String(search).trim()) {
+    const term = `%${String(search).trim()}%`;
+    decSql += " and (tc.challan_no like ? or tc.tanker_no like ? or tc.transporter like ? or tc.driver_name like ? or tc.notes like ?)";
+    decParams.push(term, term, term, term, term);
+  }
+  decSql += " order by tc.d desc, tc.id desc limit 100";
+  const decantations = db.prepare(decSql).all(...decParams);
+
+  let st = {};
+  try {
+    const sRow = db.prepare("select json from state where id=1").get();
+    if (sRow && sRow.json) st = JSON.parse(sRow.json);
+  } catch (_) {}
+
+  const tanks = st.tanks || [];
+  const todayD = bizDate();
+  const todayLogsCount = db.prepare("select count(*) c from daily_density_logs where d=?").get(todayD)?.c || 0;
+  const totalDecanted = db.prepare("select sum(decanted_qty) s from tanker_decantations").get()?.s || 0;
+  const passCount = db.prepare("select count(*) c from daily_density_logs where is_ok=1").get()?.c || 0;
+  const totalDensityChecks = db.prepare("select count(*) c from daily_density_logs").get()?.c || 0;
+
+  let calibrations = [];
+  try {
+    calibrations = db.prepare(`
+      select c.*, u.name as tested_by_name
+      from wm_measure_calibrations c
+      left join users u on u.id = c.tested_by
+      order by c.d desc, c.id desc limit 100
+    `).all();
+  } catch (_) {}
+
+  let filterTests = [];
+  try {
+    filterTests = db.prepare(`
+      select fp.*, u.name as tested_by_name
+      from filter_paper_tests fp
+      left join users u on u.id = fp.tested_by
+      order by fp.d desc, fp.id desc limit 100
+    `).all();
+  } catch (_) {}
+
+  let waterDips = [];
+  try {
+    waterDips = db.prepare(`
+      select wd.*, u.name as checked_by_name
+      from tank_water_dips wd
+      left join users u on u.id = wd.checked_by
+      order by wd.d desc, wd.id desc limit 100
+    `).all();
+  } catch (_) {}
+
+  const activeNozzles = (st.nozzles || []).filter(n => n.active !== false);
+  const today5lCount = db.prepare("select count(distinct nozzle_id) c from wm_measure_calibrations where d=?").get(todayD)?.c || 0;
+
+  s.json({
+    density_logs: densityLogs,
+    decantations,
+    tanks,
+    nozzles: activeNozzles,
+    calibrations,
+    filter_tests: filterTests,
+    water_dips: waterDips,
+    stats: {
+      today_density_checks: todayLogsCount,
+      today_5l_checks: today5lCount,
+      total_nozzles_count: activeNozzles.length,
+      today_quality_checks: filterTests.filter(t => t.d === todayD).length,
+      total_decanted_litres: totalDecanted,
+      compliance_rate: totalDensityChecks > 0 ? Math.round((passCount / totalDensityChecks) * 100) : 100,
+      total_receipts: decantations.length
+    }
+  });
+});
+
+app.post("/api/filter-paper-tests", need(), (q, s) => {
+  const { d, time_str, nozzle_id, fuel_product, filter_paper_grade, evaporation_seconds, stain_observed, is_pass, sample_bottle_tag, notes } = q.body || {};
+  if (!nozzle_id || !fuel_product) {
+    return s.status(400).json({ error: "Nozzle ID and fuel product are required." });
+  }
+  const date = d || bizDate();
+  const time = time_str || new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+  const grade = filter_paper_grade || "Whatman 589/1";
+  const evapSec = evaporation_seconds !== undefined ? +evaporation_seconds : 80;
+  const stain = stain_observed ? 1 : 0;
+  const pass = (is_pass !== undefined ? (is_pass ? 1 : 0) : (stain === 0 ? 1 : 0));
+  const tag = sample_bottle_tag ? String(sample_bottle_tag).trim() : null;
+  const noteStr = String(notes || "").trim();
+
+  const id = db.prepare(`
+    insert into filter_paper_tests(d, time_str, nozzle_id, fuel_product, filter_paper_grade, evaporation_seconds, stain_observed, is_pass, sample_bottle_tag, tested_by, notes, created_at)
+    values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(date, time, String(nozzle_id), String(fuel_product), grade, evapSec, stain, pass, tag, q.user.id, noteStr, now()).lastInsertRowid;
+
+  s.json({ ok: true, id, is_pass: pass });
+});
+
+app.post("/api/daily-density", need(), (q, s) => {
+  const { d, tank_id, fuel_type, dip_cm, temp_c, observed_density, ref_density, notes } = q.body || {};
+  if (!tank_id || !fuel_type || temp_c === undefined || observed_density === undefined || ref_density === undefined) {
+    return s.status(400).json({ error: "Missing required density parameters." });
+  }
+  const date = d || bizDate();
+  const temp = +temp_c;
+  const obs = +observed_density;
+  const ref = +ref_density;
+  const converted = getDensityConverted(temp, obs, fuel_type);
+  const variance = Math.round((converted - ref) * 10) / 10;
+  const isOk = Math.abs(variance) <= 3.0 ? 1 : 0;
+  const dip = dip_cm !== undefined ? +dip_cm : null;
+  const noteStr = String(notes || "").trim();
+
+  const id = db.prepare(`
+    insert into daily_density_logs(d, tank_id, fuel_type, dip_cm, temp_c, observed_density, converted_density_15c, ref_density, variance, is_ok, logged_by, notes, created_at)
+    values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(date, String(tank_id), String(fuel_type), dip, temp, obs, converted, ref, variance, isOk, q.user.id, noteStr, now()).lastInsertRowid;
+
+  s.json({ ok: true, id, converted_density_15c: converted, variance, is_ok: isOk });
+});
+
+app.post("/api/tanker-decantation", need("owner", "manager"), (q, s) => {
+  const {
+    challan_no, tanker_no, transporter, oil_company, d, fuel_type, tank_id,
+    invoice_qty, invoice_density, invoice_temp, observed_temp, observed_density,
+    water_paste_ok, before_dip_cm, before_qty, after_dip_cm, after_qty, driver_name, notes
+  } = q.body || {};
+
+  if (!challan_no || !tanker_no || !fuel_type || !tank_id || !invoice_qty || !invoice_density || observed_temp === undefined || observed_density === undefined) {
+    return s.status(400).json({ error: "Please provide all required tanker decantation details." });
+  }
+
+  const date = d || bizDate();
+  const obsTemp = +observed_temp;
+  const obsDens = +observed_density;
+  const invDens = +invoice_density;
+  const invQty = +invoice_qty;
+  const invTemp = invoice_temp !== undefined ? +invoice_temp : null;
+
+  const convDens = getDensityConverted(obsTemp, obsDens, fuel_type);
+  const densityDiff = Math.round((convDens - invDens) * 10) / 10;
+
+  const befQty = before_qty !== undefined ? +before_qty : null;
+  const aftQty = after_qty !== undefined ? +after_qty : null;
+  const decQty = (aftQty !== null && befQty !== null && aftQty > befQty) ? Math.round((aftQty - befQty) * 10) / 10 : invQty;
+  const transitVar = Math.round((decQty - invQty) * 10) / 10;
+  const waterOk = (water_paste_ok === 0 || water_paste_ok === false) ? 0 : 1;
+
+  const id = db.prepare(`
+    insert into tanker_decantations(
+      challan_no, tanker_no, transporter, oil_company, d, fuel_type, tank_id,
+      invoice_qty, invoice_density, invoice_temp, observed_temp, observed_density,
+      converted_density_15c, density_diff, water_paste_ok, before_dip_cm, before_qty,
+      after_dip_cm, after_qty, decanted_qty, transit_variance, driver_name, manager_id, notes, created_at
+    ) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    String(challan_no).trim(), String(tanker_no).trim().toUpperCase(), String(transporter || "").trim(),
+    String(oil_company || "IOCL").trim(), date, String(fuel_type), String(tank_id),
+    invQty, invDens, invTemp, obsTemp, obsDens, convDens, densityDiff, waterOk,
+    before_dip_cm !== undefined ? +before_dip_cm : null, befQty,
+    after_dip_cm !== undefined ? +after_dip_cm : null, aftQty,
+    decQty, transitVar, String(driver_name || "").trim(), q.user.id,
+    String(notes || "").trim(), now()
+  ).lastInsertRowid;
+
+  s.json({ ok: true, id, converted_density_15c: convDens, density_diff: densityDiff, decanted_qty: decQty, transit_variance: transitVar });
+});
+
+// ==========================================
+// 2. FLEET INDENT SLIPS & VEHICLE CREDIT VOUCHERS
+// ==========================================
+app.get("/api/fleet-indents", need(), (q, s) => {
+  const { status, search, cust_id } = q.query || {};
+  let sql = `
+    select fi.*, u.name as worker_name, cs.id as credit_sale_ref
+    from fleet_indents fi
+    left join users u on u.id = fi.worker_id
+    left join credit_sales cs on cs.id = fi.credit_sale_id
+    where 1=1
+  `;
+  const params = [];
+  if (status && status !== "all") {
+    sql += " and fi.status = ?";
+    params.push(status);
+  }
+  if (cust_id && cust_id !== "all") {
+    sql += " and fi.cust_id = ?";
+    params.push(cust_id);
+  }
+  if (search && String(search).trim()) {
+    const term = `%${String(search).trim()}%`;
+    sql += " and (fi.indent_no like ? or fi.vehicle_no like ? or fi.driver_name like ? or fi.notes like ?)";
+    params.push(term, term, term, term);
+  }
+  sql += " order by fi.id desc limit 150";
+  const indents = db.prepare(sql).all(...params);
+
+  // Customer directory with credit limits and balances
+  let customersList = [];
+  try {
+    customersList = customers();
+  } catch (_) {}
+
+  const pendingCount = db.prepare("select count(*) c from fleet_indents where status='pending'").get()?.c || 0;
+  const dispensedToday = db.prepare("select count(*) c from fleet_indents where status='dispensed' and issued_d=?").get(bizDate())?.c || 0;
+  const totalDispensedValue = db.prepare("select sum(dispensed_amount) s from fleet_indents where status='dispensed'").get()?.s || 0;
+
+  s.json({
+    indents,
+    customers: customersList,
+    stats: {
+      pending_count: pendingCount,
+      dispensed_today: dispensedToday,
+      total_dispensed_amount: totalDispensedValue
+    }
+  });
+});
+
+app.post("/api/fleet-indents/issue", need(), (q, s) => {
+  const { cust_id, vehicle_no, driver_name, driver_mobile, fuel_product, req_qty, req_amount, odometer_km, slip_leaf_no, notes } = q.body || {};
+  if (!cust_id || !vehicle_no || !fuel_product) {
+    return s.status(400).json({ error: "Customer, vehicle number, and fuel product are required." });
+  }
+
+  // Check customer credit limit and overdue if posting to credit
+  let st = {};
+  try {
+    const sRow = db.prepare("select json from state where id=1").get();
+    if (sRow && sRow.json) st = JSON.parse(sRow.json);
+  } catch (_) {}
+  const targetCust = (st.c || []).find((c) => String(c.id) === String(cust_id));
+  if (targetCust && targetCust.active === false) {
+    return s.status(400).json({ error: "This credit customer account is inactive." });
+  }
+
+  // Generate unique indent number IND-YYYY-NNNN
+  const year = new Date().getFullYear();
+  const lastRow = db.prepare("select id from fleet_indents order by id desc limit 1").get();
+  const nextNum = (lastRow ? lastRow.id : 0) + 1046;
+  const indentNo = `IND-${year}-${nextNum}`;
+  const otpCode = Math.floor(1000 + Math.random() * 9000).toString();
+
+  const date = bizDate();
+  const rQty = req_qty !== undefined ? +req_qty : null;
+  const rAmt = req_amount !== undefined ? +req_amount : null;
+  const odom = odometer_km !== undefined ? +odometer_km : null;
+  const leafNo = slip_leaf_no ? String(slip_leaf_no).trim() : `SLIP-${nextNum}`;
+
+  const id = db.prepare(`
+    insert into fleet_indents(
+      indent_no, cust_id, vehicle_no, driver_name, driver_mobile, fuel_product,
+      req_qty, req_amount, odometer_km, status, issued_d, notes, created_at,
+      otp_code, otp_verified, slip_leaf_no
+    ) values(?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, 1, ?)
+  `).run(
+    indentNo, String(cust_id), String(vehicle_no).trim().toUpperCase(),
+    String(driver_name || "").trim(), String(driver_mobile || "").trim(),
+    String(fuel_product), rQty, rAmt, odom, date, String(notes || "").trim(), now(),
+    otpCode, leafNo
+  ).lastInsertRowid;
+
+  s.json({ ok: true, id, indent_no: indentNo, otp_code: otpCode, slip_leaf_no: leafNo });
+});
+
+app.post("/api/fleet-indents/dispense", need(), (q, s) => {
+  const { indent_id, nozzle_id, dispensed_qty, dispensed_rate, post_to_credit, otp_entered, notes } = q.body || {};
+  if (!indent_id || !dispensed_qty || !dispensed_rate) {
+    return s.status(400).json({ error: "Indent ID, dispensed quantity, and fuel rate are required." });
+  }
+  const ind = db.prepare("select * from fleet_indents where id=?").get(+indent_id);
+  if (!ind) return s.status(404).json({ error: "Indent slip not found." });
+  if (ind.status === "dispensed") return s.status(400).json({ error: "This indent has already been dispensed." });
+
+  // If OTP code is configured and entered, verify it
+  if (otp_entered && ind.otp_code && String(otp_entered).trim() !== String(ind.otp_code).trim()) {
+    return s.status(400).json({ error: "Invalid driver authorization OTP code. Expected: " + ind.otp_code });
+  }
+
+  const qty = +dispensed_qty;
+  const rate = +dispensed_rate;
+  const totalAmount = Math.round(qty * rate * 100) / 100;
+  const date = bizDate();
+
+  let creditSaleId = null;
+  db.transaction(() => {
+    if (post_to_credit) {
+      creditSaleId = db.prepare(`
+        insert into credit_sales(cust_id, d, n, a, veh, worker_id, created, status)
+        values(?, ?, ?, ?, ?, ?, ?, 'ok')
+      `).run(
+        ind.cust_id, date, `${ind.fuel_product} ${qty}L @ ₹${rate} (Indent ${ind.indent_no} / Slip ${ind.slip_leaf_no || ''})`,
+        totalAmount, ind.vehicle_no, q.user.id, now()
+      ).lastInsertRowid;
+    }
+
+    db.prepare(`
+      update fleet_indents set
+        dispensed_qty = ?, dispensed_rate = ?, dispensed_amount = ?,
+        nozzle_id = ?, status = 'dispensed', dispensed_at = ?, worker_id = ?,
+        credit_sale_id = ?, otp_verified = 1,
+        notes = case when length(?) > 0 then notes || ' · ' || ? else notes end
+      where id = ?
+    `).run(
+      qty, rate, totalAmount, String(nozzle_id || ""), now(), q.user.id,
+      creditSaleId, String(notes || "").trim(), String(notes || "").trim(), ind.id
+    );
+  })();
+
+  s.json({ ok: true, dispensed_amount: totalAmount, credit_sale_id: creditSaleId });
+});
+
+app.post("/api/fleet-indents/cancel", need("owner", "manager"), (q, s) => {
+  const { indent_id } = q.body || {};
+  const ind = db.prepare("select * from fleet_indents where id=?").get(+indent_id);
+  if (!ind) return s.status(404).json({ error: "Indent not found." });
+  db.prepare("update fleet_indents set status='cancelled' where id=?").run(ind.id);
+  s.json({ ok: true });
+});
+
+// ==========================================
+// 3. LUBE OIL & ADBLUE (DEF) STOCK & BAY SALES
+// ==========================================
+app.get("/api/lube-module", need(), (q, s) => {
+  const { category, search } = q.query || {};
+  let itemSql = "select * from lube_items where 1=1";
+  const itemParams = [];
+  if (category && category !== "all") {
+    itemSql += " and category = ?";
+    itemParams.push(category);
+  }
+  if (search && String(search).trim()) {
+    const term = `%${String(search).trim()}%`;
+    itemSql += " and (name like ? or code like ? or grade like ?)";
+    itemParams.push(term, term, term);
+  }
+  itemSql += " order by category asc, name asc";
+  const items = db.prepare(itemSql).all(...itemParams);
+
+  const sales = db.prepare(`
+    select ls.*, li.name as item_name, li.grade as item_grade, li.pack_size as item_pack, li.category as item_category, u.name as worker_name
+    from lube_sales ls
+    left join lube_items li on li.id = ls.item_id
+    left join users u on u.id = ls.worker_id
+    order by ls.id desc limit 100
+  `).all();
+
+  const workerIncentives = db.prepare(`
+    select u.id as worker_id, u.name as worker_name, sum(ls.incentive_amount) as total_incentive, count(ls.id) as sales_count
+    from lube_sales ls
+    join users u on u.id = ls.worker_id
+    group by u.id, u.name
+    order by total_incentive desc
+  `).all();
+
+  const todayDate = bizDate();
+  const todaySalesAmt = db.prepare("select sum(total_amount) s, sum(incentive_amount) inc from lube_sales where d=?").get(todayDate);
+  const lowStockCount = db.prepare("select count(*) c from lube_items where stock_qty <= low_alert_qty").get()?.c || 0;
+
+  s.json({
+    items,
+    sales,
+    worker_incentives: workerIncentives,
+    stats: {
+      today_sales_amount: todaySalesAmt?.s || 0,
+      today_incentive: todaySalesAmt?.inc || 0,
+      low_stock_count: lowStockCount,
+      total_products: items.length
+    }
+  });
+});
+
+app.post("/api/lube-sale", need(), (q, s) => {
+  const { item_id, qty, payment_mode, cust_id, vehicle_no, duty_id, notes } = q.body || {};
+  if (!item_id || !qty || +qty <= 0) {
+    return s.status(400).json({ error: "Please select product and enter valid quantity." });
+  }
+  const item = db.prepare("select * from lube_items where id=?").get(String(item_id));
+  if (!item) return s.status(404).json({ error: "Lube / DEF item not found." });
+
+  const qVal = +qty;
+  const sellPrice = item.sell_price;
+  const totalAmount = Math.round(sellPrice * qVal * 100) / 100;
+  const incentiveAmt = Math.round((item.attendant_incentive || 0) * qVal * 100) / 100;
+  const date = bizDate();
+
+  let saleId = null;
+  db.transaction(() => {
+    db.prepare("update lube_items set stock_qty = max(0, stock_qty - ?) where id=?").run(qVal, item.id);
+    saleId = db.prepare(`
+      insert into lube_sales(d, item_id, qty, sell_price, total_amount, payment_mode, cust_id, vehicle_no, duty_id, worker_id, incentive_amount, notes, created_at)
+      values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      date, item.id, qVal, sellPrice, totalAmount, String(payment_mode || "Cash"),
+      cust_id ? String(cust_id) : null, String(vehicle_no || "").trim().toUpperCase(),
+      duty_id ? +duty_id : null, q.user.id, incentiveAmt, String(notes || "").trim(), now()
+    ).lastInsertRowid;
+  })();
+
+  s.json({ ok: true, id: saleId, total_amount: totalAmount, incentive_amount: incentiveAmt });
+});
+
+app.post("/api/lube-item", need("owner", "manager"), (q, s) => {
+  const { id, code, name, category, grade, pack_size, unit, buy_price, mrp, sell_price, stock_qty, low_alert_qty, attendant_incentive } = q.body || {};
+  if (!name || !category || sell_price === undefined || buy_price === undefined) {
+    return s.status(400).json({ error: "Name, category, buy price, and selling price are required." });
+  }
+
+  const itemId = id || `lube_${Date.now()}`;
+  db.prepare(`
+    insert into lube_items(id, code, name, category, grade, pack_size, unit, buy_price, mrp, sell_price, stock_qty, low_alert_qty, attendant_incentive, created_at)
+    values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    on conflict(id) do update set
+      code=excluded.code, name=excluded.name, category=excluded.category,
+      grade=excluded.grade, pack_size=excluded.pack_size, unit=excluded.unit,
+      buy_price=excluded.buy_price, mrp=excluded.mrp, sell_price=excluded.sell_price,
+      stock_qty=excluded.stock_qty, low_alert_qty=excluded.low_alert_qty,
+      attendant_incentive=excluded.attendant_incentive
+  `).run(
+    itemId, String(code || "").trim(), String(name).trim(), String(category).trim(),
+    String(grade || "").trim(), String(pack_size || "").trim(), String(unit || "piece").trim(),
+    +buy_price, +(mrp || sell_price), +sell_price, +(stock_qty || 0), +(low_alert_qty || 5),
+    +(attendant_incentive || 0), now()
+  );
+
+  s.json({ ok: true, id: itemId });
+});
+
+app.post("/api/lube-stock-inward", need("owner", "manager"), (q, s) => {
+  const { item_id, qty, buy_price, notes } = q.body || {};
+  if (!item_id || !qty || +qty <= 0) {
+    return s.status(400).json({ error: "Select item and enter valid inward quantity." });
+  }
+  const item = db.prepare("select * from lube_items where id=?").get(String(item_id));
+  if (!item) return s.status(404).json({ error: "Item not found." });
+
+  db.prepare("update lube_items set stock_qty = stock_qty + ?, buy_price = coalesce(?, buy_price) where id=?").run(
+    +qty, buy_price !== undefined ? +buy_price : null, item.id
+  );
+  s.json({ ok: true, updated_stock: item.stock_qty + (+qty) });
+});
+
+// ==========================================
+// 4. DAILY 5L MEASURE STAMPING & CALIBRATION LOG
+// ==========================================
+app.get("/api/calibration-log", need(), (q, s) => {
+  const { d, nozzle_id } = q.query || {};
+  let sql = `
+    select c.*, u.name as checked_by_name, u.role as checked_by_role
+    from nozzle_calibrations c
+    left join users u on u.id = c.checked_by
+    where 1=1
+  `;
+  const params = [];
+  if (d) {
+    sql += " and c.d = ?";
+    params.push(d);
+  }
+  if (nozzle_id && nozzle_id !== "all") {
+    sql += " and c.nozzle_id = ?";
+    params.push(nozzle_id);
+  }
+  sql += " order by c.d desc, c.id desc limit 150";
+  const calibrations = db.prepare(sql).all(...params);
+
+  // Active nozzles list with today's test status
+  let st = {};
+  try {
+    const sRow = db.prepare("select json from state where id=1").get();
+    if (sRow && sRow.json) st = JSON.parse(sRow.json);
+  } catch (_) {}
+  const allNozzles = st.nozzles || [];
+
+  const todayDate = bizDate();
+  const testedTodayIds = new Set(
+    db.prepare("select nozzle_id from nozzle_calibrations where d=?").all(todayDate).map((x) => x.nozzle_id)
+  );
+
+  const nozzlesWithStatus = allNozzles.filter((n) => n.active !== false).map((n) => ({
+    ...n,
+    tested_today: testedTodayIds.has(String(n.id))
+  }));
+
+  const certificates = db.prepare("select * from calibration_certificates order by expiry_date asc").all();
+  const passRate = db.prepare("select count(*) c from nozzle_calibrations where is_passed=1").get()?.c || 0;
+  const totalCalibs = db.prepare("select count(*) c from nozzle_calibrations").get()?.c || 0;
+
+  s.json({
+    calibrations,
+    nozzles: nozzlesWithStatus,
+    certificates,
+    tanks: st.tanks || [],
+    stats: {
+      tested_today_count: testedTodayIds.size,
+      total_active_nozzles: nozzlesWithStatus.length,
+      overall_pass_rate: totalCalibs > 0 ? Math.round((passRate / totalCalibs) * 100) : 100
+    }
+  });
+});
+
+app.post("/api/calibration-log", need(), (q, s) => {
+  const { tests, d, shift, nozzle_id, measure_qty, delivered_ml, returned_to_tank_id, stamped_measure_sr, notes } = q.body || {};
+  const date = d || bizDate();
+  const shiftVal = shift || "Morning";
+
+  // Handle batch test or single test
+  const list = Array.isArray(tests) && tests.length > 0 ? tests : [{
+    nozzle_id, measure_qty, delivered_ml, returned_to_tank_id, stamped_measure_sr, notes
+  }];
+
+  const createdIds = [];
+  db.transaction(() => {
+    for (const t of list) {
+      if (!t.nozzle_id || t.delivered_ml === undefined) continue;
+      const mQty = t.measure_qty !== undefined ? +t.measure_qty : 5000;
+      const del = +t.delivered_ml;
+      const errMl = del - mQty;
+      const isPassed = Math.abs(errMl) <= 25 ? 1 : 0;
+      const tankId = String(t.returned_to_tank_id || "1791451422410");
+      const sr = String(t.stamped_measure_sr || "W&M-5L-2026-A109");
+      const noteStr = String(t.notes || `5L conical test on nozzle ${t.nozzle_id}. Delivered ${del} ml. Fuel poured back to tank.`).trim();
+
+      const cid = db.prepare(`
+        insert into nozzle_calibrations(
+          d, shift, nozzle_id, measure_qty, delivered_ml, error_ml, tolerance_ml,
+          is_passed, returned_to_tank_id, stamped_measure_sr, checked_by, notes, created_at
+        ) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        date, shiftVal, String(t.nozzle_id), mQty, del, errMl, 25, isPassed,
+        tankId, sr, q.user.id, noteStr, now()
+      ).lastInsertRowid;
+      createdIds.push(cid);
+    }
+  })();
+
+  s.json({ ok: true, count: createdIds.length, ids: createdIds });
+});
+
+app.post("/api/calibration-certificate", need("owner", "manager"), (q, s) => {
+  const { equipment_name, serial_no, capacity, cert_no, stamping_date, expiry_date, inspector_name, department, notes } = q.body || {};
+  if (!equipment_name || !serial_no || !cert_no || !stamping_date || !expiry_date) {
+    return s.status(400).json({ error: "Missing required certificate details." });
+  }
+
+  const id = db.prepare(`
+    insert into calibration_certificates(
+      equipment_name, serial_no, capacity, cert_no, stamping_date, expiry_date, inspector_name, department, status, notes
+    ) values(?, ?, ?, ?, ?, ?, ?, ?, 'valid', ?)
+  `).run(
+    String(equipment_name).trim(), String(serial_no).trim(), String(capacity || "5 Litres").trim(),
+    String(cert_no).trim(), String(stamping_date).trim(), String(expiry_date).trim(),
+    String(inspector_name || "").trim(), String(department || "Legal Metrology Dept").trim(),
+    String(notes || "").trim()
+  ).lastInsertRowid;
+
+  s.json({ ok: true, id });
+});
+
+// ==========================================
+// 5. EVAPORATION & STORAGE TANK LOSS / GAIN ANALYTICS
+// ==========================================
+app.get("/api/loss-gain-analytics", need(), (q, s) => {
+  const { tank_id, date_from, date_to } = q.query || {};
+  let sql = `
+    select lg.*, u.name as logged_by_name
+    from tank_loss_gain_logs lg
+    left join users u on u.id = lg.logged_by
+    where 1=1
+  `;
+  const params = [];
+  if (tank_id && tank_id !== "all") {
+    sql += " and lg.tank_id = ?";
+    params.push(tank_id);
+  }
+  if (date_from) {
+    sql += " and lg.d >= ?";
+    params.push(date_from);
+  }
+  if (date_to) {
+    sql += " and lg.d <= ?";
+    params.push(date_to);
+  }
+  sql += " order by lg.d desc, lg.id desc limit 150";
+  const logs = db.prepare(sql).all(...params);
+
+  // Summary by tank across recent days
+  let st = {};
+  try {
+    const sRow = db.prepare("select json from state where id=1").get();
+    if (sRow && sRow.json) st = JSON.parse(sRow.json);
+  } catch (_) {}
+  const tanks = st.tanks || [];
+
+  const tanksSummary = tanks.map((tank) => {
+    const tankLogs = db.prepare(`
+      select sum(sales_dispensed_qty) as total_sales,
+             sum(receipts_qty) as total_receipts,
+             sum(variance_qty) as total_variance,
+             avg(variance_pct) as avg_variance_pct,
+             count(*) as count
+      from tank_loss_gain_logs
+      where tank_id = ?
+    `).get(String(tank.id));
+
+    const isDiesel = String(tank.fuel).toLowerCase().includes("diesel");
+    const omcNorm = isDiesel ? 0.15 : 0.59;
+    const totVar = tankLogs ? (tankLogs.total_variance || 0) : 0;
+    const totSales = tankLogs ? (tankLogs.total_sales || 1) : 1;
+    const cumPct = Math.round((totVar / totSales) * 1000) / 10;
+
+    return {
+      tank_id: tank.id,
+      tank_name: tank.name,
+      fuel: tank.fuel,
+      capacity: tank.capacity,
+      total_sales: tankLogs ? tankLogs.total_sales || 0 : 0,
+      total_receipts: tankLogs ? tankLogs.total_receipts || 0 : 0,
+      cumulative_variance_litres: Math.round(totVar * 10) / 10,
+      cumulative_variance_pct: cumPct,
+      omc_norm_pct: omcNorm,
+      status: Math.abs(cumPct) <= omcNorm ? "Within OMC Norms" : "Excess Loss Alert"
+    };
+  });
+
+  const totalVarAll = db.prepare("select sum(variance_qty) s from tank_loss_gain_logs").get()?.s || 0;
+  const withinNormCount = db.prepare("select count(*) c from tank_loss_gain_logs where is_within_norm=1").get()?.c || 0;
+  const totalLogs = db.prepare("select count(*) c from tank_loss_gain_logs").get()?.c || 0;
+
+  s.json({
+    logs,
+    tanks_summary: tanksSummary,
+    tanks,
+    omc_benchmarks: {
+      MS: 0.59,
+      HSD: 0.15,
+      summer_MS: 0.75
+    },
+    stats: {
+      net_operational_variance_litres: Math.round(totalVarAll * 10) / 10,
+      compliance_rate: totalLogs > 0 ? Math.round((withinNormCount / totalLogs) * 100) : 100,
+      total_reconciled_days: totalLogs
+    }
+  });
+});
+
+app.post("/api/loss-gain-reconcile", need("owner", "manager"), (q, s) => {
+  const { d, tank_id, opening_dip_qty, receipts_qty, sales_dispensed_qty, closing_dip_cm, physical_dip_qty, temp_avg, notes } = q.body || {};
+  if (!tank_id || physical_dip_qty === undefined) {
+    return s.status(400).json({ error: "Tank ID and physical dip quantity are required." });
+  }
+
+  let st = {};
+  try {
+    const sRow = db.prepare("select json from state where id=1").get();
+    if (sRow && sRow.json) st = JSON.parse(sRow.json);
+  } catch (_) {}
+  const tank = (st.tanks || []).find((t) => String(t.id) === String(tank_id)) || { fuel: "Diesel (HSD)" };
+
+  const isDiesel = String(tank.fuel).toLowerCase().includes("diesel");
+  const omcNorm = isDiesel ? 0.15 : 0.59;
+
+  const date = d || bizDate();
+  const openQty = opening_dip_qty !== undefined ? +opening_dip_qty : 10000;
+  const recQty = receipts_qty !== undefined ? +receipts_qty : 0;
+  const saleQty = sales_dispensed_qty !== undefined ? +sales_dispensed_qty : 0;
+  const bookStock = Math.round((openQty + recQty - saleQty) * 10) / 10;
+  const physQty = +physical_dip_qty;
+  const varQty = Math.round((physQty - bookStock) * 10) / 10;
+  const varPct = bookStock > 0 ? Math.round((varQty / bookStock) * 10000) / 100 : 0;
+  const isWithin = Math.abs(varPct) <= omcNorm ? 1 : 0;
+  const statusLabel = isWithin ? "Within OMC Norms" : "Excess Variance Alert";
+
+  const id = db.prepare(`
+    insert into tank_loss_gain_logs(
+      d, tank_id, fuel_type, opening_dip_qty, receipts_qty, sales_dispensed_qty,
+      book_stock_qty, closing_dip_cm, physical_dip_qty, variance_qty, variance_pct,
+      omc_norm_pct, is_within_norm, temp_avg, status_label, notes, logged_by, created_at
+    ) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    date, String(tank_id), tank.fuel, openQty, recQty, saleQty,
+    bookStock, closing_dip_cm !== undefined ? +closing_dip_cm : null, physQty,
+    varQty, varPct, omcNorm, isWithin, temp_avg !== undefined ? +temp_avg : null,
+    statusLabel, String(notes || "").trim(), q.user.id, now()
+  ).lastInsertRowid;
+
+  s.json({ ok: true, id, book_stock_qty: bookStock, variance_qty: varQty, variance_pct: varPct, is_within_norm: isWithin });
+});
+
+// ==========================================
+// 1. Shift Cash Handover & Cash-Safe Vault
+// ==========================================
+app.get("/api/vault-drops", need(), (q, s) => {
+  const { date_from, date_to, worker_id, shift, search } = q.query || {};
+  let sql = `
+    select v.*, u.name as worker_name, m.name as receiver_name
+    from vault_drops v
+    left join users u on u.id = v.worker_id
+    left join users m on m.id = v.received_by
+    where 1=1
+  `;
+  const params = [];
+  if (date_from) { sql += " and v.d >= ?"; params.push(date_from); }
+  if (date_to) { sql += " and v.d <= ?"; params.push(date_to); }
+  if (worker_id && worker_id !== "all") { sql += " and v.worker_id = ?"; params.push(+worker_id); }
+  if (shift && shift !== "all") { sql += " and v.shift = ?"; params.push(shift); }
+  if (search && String(search).trim()) {
+    const term = `%${String(search).trim()}%`;
+    sql += " and (v.notes like ? or u.name like ? or v.drop_type like ?)";
+    params.push(term, term, term);
+  }
+  sql += " order by v.d desc, v.id desc limit 150";
+  const drops = db.prepare(sql).all(...params);
+
+  const todayD = bizDate();
+  const todayTotal = db.prepare("select coalesce(sum(amount),0) s from vault_drops where d=? and drop_type!='bank_deposit'").get(todayD)?.s || 0;
+  const bankDepositedToday = db.prepare("select coalesce(sum(amount),0) s from vault_drops where d=? and drop_type='bank_deposit'").get(todayD)?.s || 0;
+  const totalSafeCash = db.prepare("select coalesce(sum(case when drop_type='bank_deposit' or drop_type='owner_withdrawal' then -amount else amount end),0) s from vault_drops").get()?.s || 0;
+  const pendingCount = db.prepare("select count(*) c from vault_drops where status='pending'").get()?.c || 0;
+
+  s.json({
+    drops,
+    stats: {
+      today_drops_amount: todayTotal,
+      today_bank_deposited: bankDepositedToday,
+      safe_cash_balance: Math.max(0, totalSafeCash),
+      pending_verification: pendingCount,
+      total_records: drops.length
+    }
+  });
+});
+
+app.post("/api/vault-drops", need(), (q, s) => {
+  const {
+    d, shift, worker_id, drop_type, amount,
+    c500, c200, c100, c50, c20, c10, c5, coins,
+    digital_upi, digital_card, fleet_credit, expenses_paid,
+    expected_cash, short_excess, notes
+  } = q.body || {};
+
+  const amt = num(amount);
+  if (isNaN(amt) || amt <= 0) return s.status(400).json({ error: "Please enter a valid cash amount above zero." });
+
+  const date = d || bizDate();
+  const sh = shift || "Morning";
+  const wid = worker_id ? +worker_id : q.user.id;
+  const isManagerOrOwner = q.user.role === "owner" || q.user.role === "manager";
+  const status = isManagerOrOwner ? "verified" : "pending";
+  const receivedBy = isManagerOrOwner ? q.user.id : null;
+
+  const rowId = db.prepare(`
+    insert into vault_drops(
+      d, shift, worker_id, drop_type, amount,
+      c500, c200, c100, c50, c20, c10, c5, coins,
+      digital_upi, digital_card, fleet_credit, expenses_paid,
+      expected_cash, short_excess, received_by, status, notes, created_at
+    ) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    date, sh, wid, drop_type || "attendant_shift_drop", r2(amt),
+    c500 ? +c500 : 0, c200 ? +c200 : 0, c100 ? +c100 : 0, c50 ? +c50 : 0,
+    c20 ? +c20 : 0, c10 ? +c10 : 0, c5 ? +c5 : 0, coins ? +coins : 0,
+    digital_upi ? num(digital_upi) : 0, digital_card ? num(digital_card) : 0,
+    fleet_credit ? num(fleet_credit) : 0, expenses_paid ? num(expenses_paid) : 0,
+    expected_cash ? num(expected_cash) : amt, short_excess ? num(short_excess) : 0,
+    receivedBy, status, String(notes || "").trim(), now()
+  ).lastInsertRowid;
+
+  s.json({ ok: true, id: rowId });
+});
+
+app.post("/api/vault-drops/:id/verify", need("owner", "manager"), (q, s) => {
+  const row = db.prepare("select * from vault_drops where id=?").get(+q.params.id);
+  if (!row) return s.status(404).json({ error: "Drop record not found." });
+  db.prepare("update vault_drops set status='verified', received_by=? where id=?").run(q.user.id, row.id);
+  s.json({ ok: true });
+});
+
+// ==========================================
+// 2. Underground Tank Water Paste & Dip Log
+// ==========================================
+app.get("/api/tank-water-dips", need(), (q, s) => {
+  const { tank_id, search } = q.query || {};
+  let sql = `
+    select w.*, u.name as checked_by_name
+    from tank_water_dips w
+    left join users u on u.id = w.checked_by
+    where 1=1
+  `;
+  const params = [];
+  if (tank_id && tank_id !== "all") { sql += " and w.tank_id = ?"; params.push(tank_id); }
+  if (search && String(search).trim()) {
+    const term = `%${String(search).trim()}%`;
+    sql += " and (w.fuel_type like ? or w.notes like ? or w.paste_color_result like ?)";
+    params.push(term, term, term);
+  }
+  sql += " order by w.d desc, w.id desc limit 150";
+  const logs = db.prepare(sql).all(...params);
+
+  const todayD = bizDate();
+  const todayChecks = db.prepare("select count(*) c from tank_water_dips where d=?").get(todayD)?.c || 0;
+  const alertCount = db.prepare("select count(*) c from tank_water_dips where water_dip_mm >= 25 or is_alert=1").get()?.c || 0;
+  const maxWaterRecorded = db.prepare("select max(water_dip_mm) m from tank_water_dips").get()?.m || 0;
+
+  s.json({
+    water_logs: logs,
+    stats: {
+      today_checks: todayChecks,
+      active_water_alerts: alertCount,
+      max_water_mm: maxWaterRecorded,
+      total_checks: logs.length
+    }
+  });
+});
+
+app.post("/api/tank-water-dips", need(), (q, s) => {
+  const { d, time_str, tank_id, fuel_type, water_dip_mm, fuel_dip_cm, paste_used, paste_color_result, water_drained_litres, notes } = q.body || {};
+  if (!tank_id || !fuel_type || water_dip_mm === undefined) {
+    return s.status(400).json({ error: "Please enter tank, fuel type, and water dip measurement." });
+  }
+  const date = d || bizDate();
+  const wMm = num(water_dip_mm) || 0;
+  const isAlert = wMm >= 25 ? 1 : 0;
+  const timeStr = String(time_str || "").trim() || "06:00 AM";
+
+  const rowId = db.prepare(`
+    insert into tank_water_dips(
+      d, time_str, tank_id, fuel_type, water_dip_mm, fuel_dip_cm,
+      paste_used, paste_color_result, water_drained_litres, is_alert, checked_by, notes, created_at
+    ) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    date, timeStr, String(tank_id), String(fuel_type), wMm,
+    fuel_dip_cm !== undefined ? num(fuel_dip_cm) : null,
+    String(paste_used || "Kolor-Kut Water Finding Paste").trim(),
+    String(paste_color_result || (wMm > 0 ? `${wMm} mm Pink Hue` : "No Water (Remains Gold-Brown)")).trim(),
+    water_drained_litres ? num(water_drained_litres) : 0,
+    isAlert, q.user.id, String(notes || "").trim(), now()
+  ).lastInsertRowid;
+
+  s.json({ ok: true, id: rowId, is_alert: isAlert });
+});
+
+// ==========================================
+// 3. Statutory & PESO Compliance Tracker
+// ==========================================
+app.get("/api/statutory-licenses", need(), (q, s) => {
+  const { category, status } = q.query || {};
+  let sql = "select * from statutory_licenses where 1=1";
+  const params = [];
+  if (category && category !== "all") { sql += " and category = ?"; params.push(category); }
+  if (status && status !== "all") { sql += " and status = ?"; params.push(status); }
+  sql += " order by expiry_date asc";
+  const rawList = db.prepare(sql).all(...params);
+
+  const todayStr = bizDate();
+  const todayTime = new Date(todayStr + "T00:00:00Z").getTime();
+
+  let activeCount = 0;
+  let expiringSoonCount = 0;
+  let expiredCount = 0;
+
+  const licenses = rawList.map((lic) => {
+    const expTime = new Date(lic.expiry_date + "T00:00:00Z").getTime();
+    const daysLeft = Math.round((expTime - todayTime) / (1000 * 60 * 60 * 24));
+    let dynStatus = lic.status;
+    if (daysLeft < 0) {
+      dynStatus = "expired";
+      expiredCount++;
+    } else if (daysLeft <= (lic.renewal_reminder_days || 30)) {
+      dynStatus = "expiring_soon";
+      expiringSoonCount++;
+    } else {
+      dynStatus = "active";
+      activeCount++;
+    }
+    return { ...lic, days_left: daysLeft, computed_status: dynStatus };
+  });
+
+  s.json({
+    licenses,
+    stats: {
+      total: licenses.length,
+      active: activeCount,
+      expiring_soon: expiringSoonCount,
+      expired: expiredCount
+    }
+  });
+});
+
+app.post("/api/statutory-licenses", need("owner", "manager"), (q, s) => {
+  const { license_type, category, license_no, authority, issued_to, issue_date, expiry_date, renewal_reminder_days, document_ref, fee_amount, notes } = q.body || {};
+  if (!license_type || !license_no || !expiry_date) {
+    return s.status(400).json({ error: "License type, license number, and expiry date are required." });
+  }
+  const rowId = db.prepare(`
+    insert into statutory_licenses(
+      license_type, category, license_no, authority, issued_to,
+      issue_date, expiry_date, renewal_reminder_days, status, document_ref, fee_amount, notes, created_at
+    ) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    String(license_type).trim(), String(category || "General Statutory").trim(),
+    String(license_no).trim(), String(authority || "").trim(), String(issued_to || "").trim(),
+    issue_date || bizDate(), expiry_date, renewal_reminder_days ? +renewal_reminder_days : 30,
+    "active", String(document_ref || "").trim(), fee_amount ? num(fee_amount) : 0,
+    String(notes || "").trim(), now()
+  ).lastInsertRowid;
+
+  s.json({ ok: true, id: rowId });
+});
+
+app.post("/api/statutory-licenses/:id/renew", need("owner", "manager"), (q, s) => {
+  const { new_expiry_date, new_license_no, fee_amount, notes } = q.body || {};
+  if (!new_expiry_date) return s.status(400).json({ error: "Please enter new renewal expiry date." });
+  const row = db.prepare("select * from statutory_licenses where id=?").get(+q.params.id);
+  if (!row) return s.status(404).json({ error: "License record not found." });
+
+  db.prepare(`
+    update statutory_licenses
+    set expiry_date=?, license_no=coalesce(?, license_no), fee_amount=coalesce(?, fee_amount),
+        notes=coalesce(?, notes), status='active'
+    where id=?
+  `).run(
+    new_expiry_date, new_license_no || null, fee_amount ? num(fee_amount) : null,
+    notes ? String(notes).trim() : null, row.id
+  );
+  s.json({ ok: true });
+});
+
+// ==========================================
+// 4. Forecourt Equipment Breakdown & Maintenance Log
+// ==========================================
+app.get("/api/equipment-tickets", need(), (q, s) => {
+  const { status, priority, search } = q.query || {};
+  let sql = `
+    select t.*, u.name as reported_by_name
+    from equipment_tickets t
+    left join users u on u.id = t.reported_by
+    where 1=1
+  `;
+  const params = [];
+  if (status && status !== "all") { sql += " and t.status = ?"; params.push(status); }
+  if (priority && priority !== "all") { sql += " and t.priority = ?"; params.push(priority); }
+  if (search && String(search).trim()) {
+    const term = `%${String(search).trim()}%`;
+    sql += " and (t.ticket_no like ? or t.equipment_name like ? or t.vendor_name like ? or t.issue_description like ?)";
+    params.push(term, term, term, term);
+  }
+  sql += " order by case when t.status in ('open','in_progress') then 0 else 1 end, t.id desc limit 150";
+  const tickets = db.prepare(sql).all(...params);
+
+  const openCount = db.prepare("select count(*) c from equipment_tickets where status in ('open','in_progress')").get()?.c || 0;
+  const criticalCount = db.prepare("select count(*) c from equipment_tickets where status in ('open','in_progress') and priority='Critical'").get()?.c || 0;
+  const totalCost = db.prepare("select coalesce(sum(repair_cost),0) s from equipment_tickets").get()?.s || 0;
+  const avgDowntime = db.prepare("select coalesce(avg(downtime_hours),0) a from equipment_tickets where downtime_hours > 0").get()?.a || 0;
+
+  s.json({
+    tickets,
+    stats: {
+      open_tickets: openCount,
+      critical_tickets: criticalCount,
+      total_repair_cost: totalCost,
+      avg_downtime_hours: Math.round(avgDowntime * 10) / 10
+    }
+  });
+});
+
+app.post("/api/equipment-tickets", need(), (q, s) => {
+  const { equipment_name, equipment_type, island_bay, issue_description, priority, vendor_name, vendor_contact, assigned_to, notes } = q.body || {};
+  if (!equipment_name || !issue_description) {
+    return s.status(400).json({ error: "Equipment name and issue description are required." });
+  }
+
+  const ticketNo = "TKT-" + bizDate().slice(0, 4) + "-" + Math.floor(100 + Math.random() * 900);
+  const rowId = db.prepare(`
+    insert into equipment_tickets(
+      ticket_no, equipment_name, equipment_type, island_bay, issue_description,
+      priority, vendor_name, vendor_contact, reported_by, reported_at,
+      assigned_to, status, downtime_hours, repair_cost, spares_replaced, notes, created_at
+    ) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    ticketNo, String(equipment_name).trim(), String(equipment_type || "Dispenser / DU").trim(),
+    String(island_bay || "Main Forecourt").trim(), String(issue_description).trim(),
+    String(priority || "Urgent").trim(), String(vendor_name || "OMC Maintenance Team").trim(),
+    String(vendor_contact || "").trim(), q.user.id, now(),
+    String(assigned_to || "").trim(), "open", 0, 0, "", String(notes || "").trim(), now()
+  ).lastInsertRowid;
+
+  s.json({ ok: true, id: rowId, ticket_no: ticketNo });
+});
+
+app.post("/api/equipment-tickets/:id/resolve", need(), (q, s) => {
+  const { downtime_hours, repair_cost, spares_replaced, notes } = q.body || {};
+  const row = db.prepare("select * from equipment_tickets where id=?").get(+q.params.id);
+  if (!row) return s.status(404).json({ error: "Equipment ticket not found." });
+
+  db.prepare(`
+    update equipment_tickets
+    set status='resolved', resolved_at=?, downtime_hours=?, repair_cost=?, spares_replaced=?, notes=coalesce(?, notes)
+    where id=?
+  `).run(
+    now(), downtime_hours ? num(downtime_hours) : 0, repair_cost ? num(repair_cost) : 0,
+    String(spares_replaced || "Replaced worn components and calibrated").trim(),
+    notes ? String(notes).trim() : null, row.id
+  );
+  s.json({ ok: true });
+});
+
+// ==========================================
+// 5. Driver Loyalty & Commercial Khata
+// ==========================================
+app.get("/api/driver-loyalty", need(), (q, s) => {
+  const { search, type, tier } = q.query || {};
+  let sql = "select * from driver_loyalty_members where 1=1";
+  const params = [];
+  if (type && type !== "all") { sql += " and vehicle_type = ?"; params.push(type); }
+  if (tier && tier !== "all") { sql += " and tier = ?"; params.push(tier); }
+  if (search && String(search).trim()) {
+    const term = `%${String(search).trim()}%`;
+    sql += " and (member_code like ? or name like ? or mobile like ? or vehicle_no like ?)";
+    params.push(term, term, term, term);
+  }
+  sql += " order by total_litres_fuelled desc limit 150";
+  const members = db.prepare(sql).all(...params);
+
+  const txns = db.prepare(`
+    select t.*, m.name as driver_name, m.vehicle_no, m.member_code
+    from driver_loyalty_transactions t
+    join driver_loyalty_members m on m.id = t.driver_id
+    order by t.id desc limit 60
+  `).all();
+
+  const totalMembers = db.prepare("select count(*) c from driver_loyalty_members where active=1").get()?.c || 0;
+  const totalPoints = db.prepare("select coalesce(sum(points_balance),0) s from driver_loyalty_members").get()?.s || 0;
+  const totalKhataOwed = db.prepare("select coalesce(sum(khata_balance),0) s from driver_loyalty_members where khata_balance > 0").get()?.s || 0;
+  const totalLitresDispensed = db.prepare("select coalesce(sum(total_litres_fuelled),0) s from driver_loyalty_members").get()?.s || 0;
+
+  s.json({
+    members,
+    recent_transactions: txns,
+    stats: {
+      total_members: totalMembers,
+      total_points_bank: Math.round(totalPoints),
+      total_khata_due: totalKhataOwed,
+      total_litres_rewarded: Math.round(totalLitresDispensed)
+    }
+  });
+});
+
+app.post("/api/driver-loyalty/register", need(), (q, s) => {
+  const { name, mobile, vehicle_no, vehicle_type } = q.body || {};
+  if (!name || !mobile || !vehicle_no) {
+    return s.status(400).json({ error: "Driver name, mobile number, and vehicle number are required." });
+  }
+  const cleanMob = String(mobile).replace(/\D/g, "");
+  if (cleanMob.length !== 10) return s.status(400).json({ error: "Enter a valid 10-digit mobile number." });
+
+  const code = "LOY-" + Math.floor(1000 + Math.random() * 9000);
+  const rowId = db.prepare(`
+    insert into driver_loyalty_members(
+      member_code, name, mobile, vehicle_no, vehicle_type, tier,
+      points_balance, total_litres_fuelled, khata_balance, active, created_at
+    ) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    code, String(name).trim(), cleanMob, String(vehicle_no).trim().toUpperCase(),
+    String(vehicle_type || "Auto Rickshaw").trim(), "Silver", 0, 0, 0, 1, now()
+  ).lastInsertRowid;
+
+  s.json({ ok: true, id: rowId, member_code: code });
+});
+
+app.post("/api/driver-loyalty/txn", need(), (q, s) => {
+  const { driver_id, txn_type, fuel_type, litres, amount, points_redeemed, notes } = q.body || {};
+  const mem = db.prepare("select * from driver_loyalty_members where id=?").get(+driver_id);
+  if (!mem) return s.status(404).json({ error: "Loyalty driver member not found." });
+
+  const date = bizDate();
+  const lit = litres ? num(litres) : 0;
+  const amt = amount ? num(amount) : 0;
+  const type = txn_type || "fuel_visit";
+  let earned = 0;
+  let redeemed = points_redeemed ? num(points_redeemed) : 0;
+
+  if (type === "fuel_visit") {
+    // 1 point per 10 litres dispensed
+    earned = Math.round((lit / 10) * 10) / 10;
+  }
+
+  db.transaction(() => {
+    let newPoints = Math.max(0, mem.points_balance + earned - redeemed);
+    let newLitres = mem.total_litres_fuelled + lit;
+    let newKhata = mem.khata_balance;
+    if (type === "khata_credit") {
+      newKhata += amt;
+    } else if (type === "khata_payment") {
+      newKhata = Math.max(0, newKhata - amt);
+    }
+
+    // Tier upgrade
+    let newTier = "Silver";
+    if (newLitres >= 3000) newTier = "Platinum";
+    else if (newLitres >= 1000) newTier = "Gold";
+
+    db.prepare(`
+      update driver_loyalty_members
+      set points_balance=?, total_litres_fuelled=?, khata_balance=?, tier=?
+      where id=?
+    `).run(newPoints, newLitres, newKhata, newTier, mem.id);
+
+    db.prepare(`
+      insert into driver_loyalty_transactions(
+        driver_id, d, txn_type, fuel_type, litres, amount, points_earned, points_redeemed, notes, created_at
+      ) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(mem.id, date, type, fuel_type || "Diesel (HSD)", lit, amt, earned, redeemed, String(notes || "").trim(), now());
+  })();
+
+  s.json({ ok: true });
+});
+
+// ==========================================
+// 6. Generator & Forecourt Electricity Log
+// ==========================================
+app.get("/api/generator-power-logs", need(), (q, s) => {
+  const { date_from, date_to } = q.query || {};
+  let sql = `
+    select g.*, u.name as logged_by_name
+    from generator_power_logs g
+    left join users u on u.id = g.logged_by
+    where 1=1
+  `;
+  const params = [];
+  if (date_from) { sql += " and g.d >= ?"; params.push(date_from); }
+  if (date_to) { sql += " and g.d <= ?"; params.push(date_to); }
+  sql += " order by g.d desc, g.id desc limit 120";
+  const logs = db.prepare(sql).all(...params);
+
+  const totalRun = db.prepare("select coalesce(sum(run_hours),0) s from generator_power_logs").get()?.s || 0;
+  const totalDiesel = db.prepare("select coalesce(sum(diesel_consumed_litres),0) s from generator_power_logs").get()?.s || 0;
+  const totalOutageMins = db.prepare("select coalesce(sum(power_cut_mins),0) s from generator_power_logs").get()?.s || 0;
+  const avgBurnRate = totalRun > 0 ? (totalDiesel / totalRun) : 8.0;
+
+  s.json({
+    logs,
+    stats: {
+      total_run_hours: Math.round(totalRun * 10) / 10,
+      total_diesel_consumed: Math.round(totalDiesel * 10) / 10,
+      total_outage_hours: Math.round((totalOutageMins / 60) * 10) / 10,
+      avg_burn_rate_lph: Math.round(avgBurnRate * 10) / 10
+    }
+  });
+});
+
+app.post("/api/generator-power-logs", need(), (q, s) => {
+  const { d, genset_start_hours, genset_end_hours, diesel_consumed_litres, power_cut_mins, outage_reason, battery_voltage, oil_level_ok, notes } = q.body || {};
+  const start = num(genset_start_hours);
+  const end = num(genset_end_hours);
+  if (isNaN(start) || isNaN(end) || end < start) {
+    return s.status(400).json({ error: "Genset end reading must be greater than or equal to start reading." });
+  }
+  const runHours = Math.round((end - start) * 100) / 100;
+  const diesel = num(diesel_consumed_litres) || 0;
+  const burnRate = runHours > 0 ? Math.round((diesel / runHours) * 100) / 100 : 0;
+  const date = d || bizDate();
+
+  const rowId = db.prepare(`
+    insert into generator_power_logs(
+      d, genset_start_hours, genset_end_hours, run_hours,
+      diesel_consumed_litres, fuel_burn_rate_lph, power_cut_mins,
+      outage_reason, battery_voltage, oil_level_ok, logged_by, notes, created_at
+    ) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    date, start, end, runHours, diesel, burnRate,
+    power_cut_mins ? num(power_cut_mins) : Math.round(runHours * 60),
+    String(outage_reason || "Grid Power Outage").trim(),
+    battery_voltage ? num(battery_voltage) : 12.6,
+    oil_level_ok === 0 ? 0 : 1, q.user.id, String(notes || "").trim(), now()
+  ).lastInsertRowid;
+
+  s.json({ ok: true, id: rowId, run_hours: runHours, burn_rate: burnRate });
+});
+
+// ==========================================
+// 7. Customer Amenities & OMC Mystery Audit
+// ==========================================
+app.get("/api/amenities-inspections", need(), (q, s) => {
+  let sql = `
+    select a.*, u.name as inspector_name
+    from amenities_inspections a
+    left join users u on u.id = a.inspector_id
+    order by a.d desc, a.id desc limit 100
+  `;
+  const inspections = db.prepare(sql).all();
+
+  const todayD = bizDate();
+  const todayInspection = db.prepare("select * from amenities_inspections where d=? order by id desc limit 1").get(todayD);
+  const avgScore = db.prepare("select coalesce(avg(total_score_pct),100) a from amenities_inspections").get()?.a || 100;
+
+  s.json({
+    inspections,
+    today_inspection: todayInspection || null,
+    stats: {
+      today_inspected: todayInspection ? 1 : 0,
+      today_score: todayInspection ? todayInspection.total_score_pct : null,
+      average_omc_score: Math.round(avgScore * 10) / 10,
+      total_audits: inspections.length
+    }
+  });
+});
+
+app.post("/api/amenities-inspections", need(), (q, s) => {
+  const {
+    d, shift,
+    air_nitrogen_working, air_gauge_calibrated,
+    drinking_water_ok, water_dispenser_clean,
+    gents_toilet_clean, ladies_toilet_clean,
+    soap_water_running, windshield_wash_bucket_ok,
+    fire_extinguishers_green, sand_buckets_dry_full,
+    first_aid_stocked, complaint_book_open, canopy_lighting_full,
+    corrective_actions
+  } = q.body || {};
+
+  const items = [
+    air_nitrogen_working, air_gauge_calibrated,
+    drinking_water_ok, water_dispenser_clean,
+    gents_toilet_clean, ladies_toilet_clean,
+    soap_water_running, windshield_wash_bucket_ok,
+    fire_extinguishers_green, sand_buckets_dry_full,
+    first_aid_stocked, complaint_book_open, canopy_lighting_full
+  ].map((x) => (x === 1 || x === true || x === "1" ? 1 : 0));
+
+  const passedCount = items.reduce((a, b) => a + b, 0);
+  const scorePct = Math.round((passedCount / 13) * 1000) / 10;
+  let grade = "A - Outstanding / 100%";
+  if (scorePct < 80) grade = "C - Critical OMC Deficiencies";
+  else if (scorePct < 95) grade = "B - Good / Minor Fixes Needed";
+
+  const date = d || bizDate();
+  const rowId = db.prepare(`
+    insert into amenities_inspections(
+      d, shift, inspector_id, air_nitrogen_working, air_gauge_calibrated,
+      drinking_water_ok, water_dispenser_clean, gents_toilet_clean, ladies_toilet_clean,
+      soap_water_running, windshield_wash_bucket_ok, fire_extinguishers_green,
+      sand_buckets_dry_full, first_aid_stocked, complaint_book_open, canopy_lighting_full,
+      total_score_pct, audit_grade, corrective_actions, created_at
+    ) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    date, String(shift || "Morning (07:00 AM)").trim(), q.user.id,
+    items[0], items[1], items[2], items[3], items[4], items[5],
+    items[6], items[7], items[8], items[9], items[10], items[11], items[12],
+    scorePct, grade, String(corrective_actions || "").trim(), now()
+  ).lastInsertRowid;
+
+  s.json({ ok: true, id: rowId, score_pct: scorePct, grade });
+});
+
+// ==========================================
+// 14. MOBILE FUEL BOWSER & DOORSTEP DELIVERY (DDD)
+// ==========================================
+app.get("/api/bowsers", need(), (q, s) => {
+  const bowsers = db.prepare("select * from bowsers order by id asc").all();
+  const trips = db.prepare(`
+    select t.*, b.name as bowser_name, b.reg_no as bowser_reg
+    from bowser_trips t
+    left join bowsers b on b.id = t.bowser_id
+    order by t.id desc limit 60
+  `).all();
+  const deliveries = db.prepare(`
+    select d.*, b.name as bowser_name, b.reg_no as bowser_reg
+    from bowser_deliveries d
+    left join bowsers b on b.id = d.bowser_id
+    order by d.id desc limit 100
+  `).all();
+  const refills = db.prepare(`
+    select r.*, b.name as bowser_name, b.reg_no as bowser_reg, u.name as attendant_name
+    from bowser_refills r
+    left join bowsers b on b.id = r.bowser_id
+    left join users u on u.id = r.attendant_id
+    order by r.id desc limit 50
+  `).all();
+
+  const todayD = bizDate();
+  const todayLiters = db.prepare("select sum(qty_litres) s, sum(amount) a from bowser_deliveries where d=?").get(todayD) || {};
+  const activeTripsCount = db.prepare("select count(*) c from bowser_trips where status='open'").get()?.c || 0;
+  const totalFleetCapacity = db.prepare("select sum(capacity_litres) c, sum(current_fuel_stock) s from bowsers").get() || {};
+
+  let custs = [];
+  try { custs = customers(); } catch (_) {}
+
+  s.json({
+    bowsers,
+    trips,
+    deliveries,
+    refills,
+    customers: custs,
+    stats: {
+      active_trips: activeTripsCount,
+      today_delivered_litres: todayLiters.s || 0,
+      today_delivered_amount: todayLiters.a || 0,
+      total_fleet_capacity: totalFleetCapacity.c || 0,
+      current_mobile_stock: totalFleetCapacity.s || 0
+    }
+  });
+});
+
+app.post("/api/bowsers/create", need("owner", "manager"), (q, s) => {
+  const { name, reg_no, capacity_litres, flowmeter_make, flowmeter_serial, starting_meter, driver_name, driver_mobile, peso_license_no, peso_expiry_d, notes } = q.body || {};
+  if (!name || !reg_no || !capacity_litres || !flowmeter_make) {
+    return s.status(400).json({ error: "Name, registration number, tank capacity, and flowmeter make are required." });
+  }
+  const id = db.prepare(`
+    insert into bowsers(name, reg_no, capacity_litres, current_fuel_stock, flowmeter_make, flowmeter_serial, current_totalizer_meter, fuel_product, driver_name, driver_mobile, peso_license_no, peso_expiry_d, status, notes, created_at)
+    values(?, ?, ?, 0, ?, ?, ?, 'Diesel (HSD)', ?, ?, ?, ?, 'available', ?, ?)
+  `).run(
+    String(name).trim(), String(reg_no).trim().toUpperCase(), +capacity_litres,
+    String(flowmeter_make).trim(), String(flowmeter_serial || "FM-AUTO").trim(),
+    starting_meter ? +starting_meter : 0,
+    String(driver_name || "").trim(), String(driver_mobile || "").trim(),
+    String(peso_license_no || "").trim(), String(peso_expiry_d || "").trim(),
+    String(notes || "").trim(), now()
+  ).lastInsertRowid;
+  s.json({ ok: true, id });
+});
+
+app.post("/api/bowser-refill", need(), (q, s) => {
+  const { bowser_id, tank_id, loaded_qty, loaded_density, temp_c, dip_before_cm, dip_after_cm, notes } = q.body || {};
+  if (!bowser_id || !loaded_qty || !loaded_density) {
+    return s.status(400).json({ error: "Bowser ID, loaded quantity, and density are required." });
+  }
+  const b = db.prepare("select * from bowsers where id=?").get(+bowser_id);
+  if (!b) return s.status(404).json({ error: "Bowser not found." });
+
+  const qty = +loaded_qty;
+  const dens = +loaded_density;
+  const date = bizDate();
+  const timeStr = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+
+  db.transaction(() => {
+    db.prepare(`
+      insert into bowser_refills(bowser_id, d, time_str, tank_id, fuel_product, dip_before_cm, dip_after_cm, loaded_qty, loaded_density, temp_c, attendant_id, notes, created_at)
+      values(?, ?, ?, ?, 'Diesel (HSD)', ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      b.id, date, timeStr, String(tank_id || "T2"),
+      dip_before_cm ? +dip_before_cm : null, dip_after_cm ? +dip_after_cm : null,
+      qty, dens, temp_c ? +temp_c : null, q.user.id, String(notes || "").trim(), now()
+    );
+
+    db.prepare("update bowsers set current_fuel_stock = current_fuel_stock + ? where id=?").run(qty, b.id);
+  })();
+
+  s.json({ ok: true });
+});
+
+app.post("/api/bowser-trip/start", need(), (q, s) => {
+  const { bowser_id, driver_name, driver_mobile, helper_name, starting_meter, destination_summary, notes } = q.body || {};
+  if (!bowser_id || !driver_name) {
+    return s.status(400).json({ error: "Bowser and driver name are required." });
+  }
+  const b = db.prepare("select * from bowsers where id=?").get(+bowser_id);
+  if (!b) return s.status(404).json({ error: "Bowser not found." });
+  if (b.status === "on_trip") {
+    return s.status(400).json({ error: "This bowser is already on an active trip. Complete it first." });
+  }
+
+  const year = new Date().getFullYear();
+  const lastTrip = db.prepare("select id from bowser_trips order by id desc limit 1").get();
+  const nextNum = (lastTrip ? lastTrip.id : 0) + 101;
+  const tripNo = `TRIP-${year}-${nextNum}`;
+  const date = bizDate();
+  const timeStr = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+  const startMeter = starting_meter !== undefined && starting_meter !== "" ? +starting_meter : b.current_totalizer_meter;
+
+  const tripId = db.transaction(() => {
+    const tid = db.prepare(`
+      insert into bowser_trips(trip_no, bowser_id, d, start_time, driver_name, driver_mobile, helper_name, starting_meter, starting_fuel_qty, destination_summary, status, notes, created_at)
+      values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)
+    `).run(
+      tripNo, b.id, date, timeStr, String(driver_name).trim(),
+      String(driver_mobile || b.driver_mobile || "").trim(), String(helper_name || "").trim(),
+      startMeter, b.current_fuel_stock, String(destination_summary || "").trim(),
+      String(notes || "").trim(), now()
+    ).lastInsertRowid;
+
+    db.prepare("update bowsers set status='on_trip', current_totalizer_meter=? where id=?").run(startMeter, b.id);
+    return tid;
+  })();
+
+  s.json({ ok: true, trip_id: tripId, trip_no: tripNo });
+});
+
+app.post("/api/bowser-delivery", need(), (q, s) => {
+  const {
+    trip_id, cust_id, client_name, site_location, asset_type,
+    start_meter, end_meter, qty_litres, rate, payment_mode,
+    recipient_person, recipient_mobile, gps_coordinates, notes
+  } = q.body || {};
+
+  if (!trip_id || !client_name || !asset_type || !qty_litres || !rate) {
+    return s.status(400).json({ error: "Trip, client name, equipment asset, quantity, and rate are required." });
+  }
+
+  const trip = db.prepare("select * from bowser_trips where id=?").get(+trip_id);
+  if (!trip) return s.status(404).json({ error: "Trip not found." });
+  if (trip.status !== "open") return s.status(400).json({ error: "Trip is already completed or cancelled." });
+
+  const b = db.prepare("select * from bowsers where id=?").get(trip.bowser_id);
+  const qty = +qty_litres;
+  const r = +rate;
+  const amount = Math.round(qty * r * 100) / 100;
+  const sMeter = start_meter !== undefined ? +start_meter : trip.starting_meter + trip.total_dispensed_qty;
+  const eMeter = end_meter !== undefined ? +end_meter : sMeter + qty;
+  const date = bizDate();
+  const timeStr = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+
+  const year = new Date().getFullYear();
+  const lastDeliv = db.prepare("select id from bowser_deliveries order by id desc limit 1").get();
+  const challanNo = `DDD-${year}-${(lastDeliv ? lastDeliv.id : 0) + 1042}`;
+
+  let creditSaleId = null;
+
+  db.transaction(() => {
+    if (payment_mode === "credit" && cust_id) {
+      creditSaleId = db.prepare(`
+        insert into credit_sales(cust_id, d, n, a, veh, worker_id, created, status)
+        values(?, ?, ?, ?, ?, ?, ?, 'ok')
+      `).run(
+        String(cust_id), date, `DDD Bowser Refueling: ${qty}L @ ₹${r} (${challanNo} - ${asset_type})`,
+        amount, String(asset_type).slice(0, 30), q.user.id, now()
+      ).lastInsertRowid;
+    }
+
+    db.prepare(`
+      insert into bowser_deliveries(
+        trip_id, trip_no, bowser_id, d, delivery_time, challan_no, cust_id, client_name,
+        site_location, asset_type, start_meter, end_meter, qty_litres, rate, amount,
+        payment_mode, credit_sale_id, recipient_person, recipient_mobile, gps_coordinates, notes, created_at
+      ) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      trip.id, trip.trip_no, trip.bowser_id, date, timeStr, challanNo,
+      cust_id ? String(cust_id) : null, String(client_name).trim(),
+      String(site_location || "On-site").trim(), String(asset_type).trim(),
+      sMeter, eMeter, qty, r, amount, String(payment_mode || "credit"),
+      creditSaleId, String(recipient_person || "").trim(),
+      String(recipient_mobile || "").trim(), String(gps_coordinates || "").trim(),
+      String(notes || "").trim(), now()
+    );
+
+    db.prepare("update bowser_trips set total_dispensed_qty = total_dispensed_qty + ? where id=?").run(qty, trip.id);
+    db.prepare("update bowsers set current_fuel_stock = max(0, current_fuel_stock - ?), current_totalizer_meter = ? where id=?").run(qty, eMeter, b.id);
+  })();
+
+  s.json({ ok: true, challan_no: challanNo, amount, credit_sale_id: creditSaleId });
+});
+
+app.post("/api/bowser-trip/complete", need(), (q, s) => {
+  const { trip_id, ending_meter, remaining_dip_litres, notes } = q.body || {};
+  const trip = db.prepare("select * from bowser_trips where id=?").get(+trip_id);
+  if (!trip) return s.status(404).json({ error: "Trip not found." });
+  if (trip.status !== "open") return s.status(400).json({ error: "Trip already closed." });
+
+  const b = db.prepare("select * from bowsers where id=?").get(trip.bowser_id);
+  const timeStr = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+  const eMeter = ending_meter !== undefined ? +ending_meter : trip.starting_meter + trip.total_dispensed_qty;
+  const remDip = remaining_dip_litres !== undefined ? +remaining_dip_litres : Math.max(0, trip.starting_fuel_qty - trip.total_dispensed_qty);
+  const expectedRemaining = Math.max(0, trip.starting_fuel_qty - trip.total_dispensed_qty);
+  const variance = Math.round((remDip - expectedRemaining) * 10) / 10;
+
+  db.transaction(() => {
+    db.prepare(`
+      update bowser_trips set
+        end_time = ?, ending_meter = ?, ending_fuel_qty = ?, remaining_dip_litres = ?,
+        transit_variance_litres = ?, status = 'completed', completed_at = ?,
+        notes = case when length(?) > 0 then notes || ' · ' || ? else notes end
+      where id = ?
+    `).run(
+      timeStr, eMeter, remDip, remDip, variance, now(),
+      String(notes || "").trim(), String(notes || "").trim(), trip.id
+    );
+
+    db.prepare("update bowsers set status = 'available', current_fuel_stock = ?, current_totalizer_meter = ? where id = ?").run(remDip, eMeter, b.id);
+  })();
+
+  s.json({ ok: true, variance_litres: variance });
+});
+
+// ==========================================
+// 15. AUTOMATED DAILY PROFIT & LOSS BREAKDOWN
+// ==========================================
+app.get("/api/pnl-analytics", need("owner", "manager"), (q, s) => {
+  const { date_from, date_to } = q.query || {};
+  const todayD = bizDate();
+  const dFrom = date_from || new Date(Date.now() - 6 * 864e5).toISOString().slice(0, 10);
+  const dTo = date_to || todayD;
+
+  const commissions = db.prepare("select * from dealer_commissions").all();
+  const commMap = {};
+  commissions.forEach(c => { commMap[c.fuel_product] = c.commission_per_litre; });
+  if (!commMap["Petrol (MS)"]) commMap["Petrol (MS)"] = 3.75;
+  if (!commMap["Diesel (HSD)"]) commMap["Diesel (HSD)"] = 2.58;
+  if (!commMap["Power petrol"]) commMap["Power petrol"] = 4.15;
+  if (!commMap["AdBlue (DEF)"]) commMap["AdBlue (DEF)"] = 12.00;
+
+  let st = {};
+  try {
+    const sRow = db.prepare("select json from state where id=1").get();
+    if (sRow && sRow.json) st = JSON.parse(sRow.json);
+  } catch (_) {}
+  const nozzleFuelMap = {};
+  (st.nozzles || []).forEach(n => { nozzleFuelMap[n.id] = n.fuel; });
+
+  const duties = db.prepare(`
+    select d.id, d.d, d.cash, d.upi, d.card
+    from duties d
+    where d.d >= ? and d.d <= ? and d.status in ('submitted','closed')
+  `).all(dFrom, dTo);
+
+  const lines = db.prepare(`
+    select dl.*, d.d
+    from duty_lines dl
+    join duties d on d.id = dl.duty_id
+    where d.d >= ? and d.d <= ? and d.status in ('submitted','closed')
+  `).all(dFrom, dTo);
+
+  const bowserSales = db.prepare(`
+    select d, sum(qty_litres) as total_litres, sum(amount) as total_amt
+    from bowser_deliveries
+    where d >= ? and d <= ?
+    group by d
+  `).all(dFrom, dTo);
+  const bowserByDate = {};
+  bowserSales.forEach(b => { bowserByDate[b.d] = b; });
+
+  const lubeItems = db.prepare(`
+    select di.*, d.d
+    from duty_items di
+    join duties d on d.id = di.duty_id
+    where d.d >= ? and d.d <= ? and d.status in ('submitted','closed')
+  `).all(dFrom, dTo);
+
+  const overheads = db.prepare(`
+    select * from daily_pnl_overheads where d >= ? and d <= ? order by d asc
+  `).all(dFrom, dTo);
+  const overheadMap = {};
+  overheads.forEach(o => { overheadMap[o.d] = o; });
+
+  const vaultDrops = db.prepare(`
+    select d, sum(case when short_excess < 0 then abs(short_excess) else 0 end) as shortages
+    from vault_drops
+    where d >= ? and d <= ?
+    group by d
+  `).all(dFrom, dTo);
+  const shortMap = {};
+  vaultDrops.forEach(v => { shortMap[v.d] = v.shortages; });
+
+  const dateList = [];
+  let cur = new Date(dFrom);
+  const end = new Date(dTo);
+  while (cur <= end) {
+    dateList.push(cur.toISOString().slice(0, 10));
+    cur.setDate(cur.getDate() + 1);
+  }
+
+  const dailyPnL = dateList.map(dt => {
+    let msL = 0, hsdL = 0, pwrL = 0, otherFuelL = 0, totalFuelRev = 0;
+    lines.filter(l => l.d === dt).forEach(l => {
+      const vol = Math.max(0, (l.closing || 0) - (l.opening || 0) - (l.testing || 0));
+      const fuel = nozzleFuelMap[l.nozzle_id] || "Diesel (HSD)";
+      if (fuel.includes("Petrol") || fuel.includes("MS")) {
+        if (fuel.toLowerCase().includes("power") || fuel.toLowerCase().includes("speed") || fuel.toLowerCase().includes("xp")) pwrL += vol;
+        else msL += vol;
+      } else if (fuel.includes("Diesel") || fuel.includes("HSD")) {
+        hsdL += vol;
+      } else {
+        otherFuelL += vol;
+      }
+      totalFuelRev += vol * (l.rate || (fuel.includes("Petrol") ? 104.5 : 91.5));
+    });
+
+    if (bowserByDate[dt]) {
+      hsdL += (bowserByDate[dt].total_litres || 0);
+      totalFuelRev += (bowserByDate[dt].total_amt || 0);
+    }
+
+    const msComm = Math.round(msL * (commMap["Petrol (MS)"] || 3.75) * 100) / 100;
+    const hsdComm = Math.round(hsdL * (commMap["Diesel (HSD)"] || 2.58) * 100) / 100;
+    const pwrComm = Math.round(pwrL * (commMap["Power petrol"] || 4.15) * 100) / 100;
+    const fuelGrossMargin = msComm + hsdComm + pwrComm;
+
+    let lubeRev = 0, lubeProfit = 0;
+    lubeItems.filter(li => li.d === dt).forEach(li => {
+      const sAmt = (li.qty || 0) * (li.price || 0);
+      lubeRev += sAmt;
+      lubeProfit += sAmt * 0.22;
+    });
+
+    const totalGrossProfit = fuelGrossMargin + lubeProfit;
+
+    const ov = overheadMap[dt] || {
+      electricity_expense: 650, dg_fuel_expense: 550, staff_wages: 2400,
+      evaporation_shrinkage_cost: 350, bank_pos_charges: 280, maintenance_misc: 120
+    };
+    const vaultShort = shortMap[dt] || 0;
+    const totalOverheads = Math.round(
+      (ov.electricity_expense || 0) + (ov.dg_fuel_expense || 0) + (ov.staff_wages || 0) +
+      (ov.evaporation_shrinkage_cost || 0) + (ov.bank_pos_charges || 0) + (ov.maintenance_misc || 0) + vaultShort
+    );
+
+    const netProfit = Math.round((totalGrossProfit - totalOverheads) * 100) / 100;
+    const totalTurnover = totalFuelRev + lubeRev;
+    const netMarginPct = totalTurnover > 0 ? Math.round((netProfit / totalTurnover) * 1000) / 10 : 0;
+    const totalFuelLitres = msL + hsdL + pwrL + otherFuelL;
+
+    return {
+      date: dt,
+      ms_litres: Math.round(msL * 10) / 10,
+      hsd_litres: Math.round(hsdL * 10) / 10,
+      pwr_litres: Math.round(pwrL * 10) / 10,
+      total_fuel_litres: Math.round(totalFuelLitres * 10) / 10,
+      ms_margin: msComm,
+      hsd_margin: hsdComm,
+      pwr_margin: pwrComm,
+      fuel_gross_margin: Math.round(fuelGrossMargin),
+      lube_revenue: Math.round(lubeRev),
+      lube_profit: Math.round(lubeProfit),
+      total_gross_profit: Math.round(totalGrossProfit),
+      overheads: {
+        electricity: ov.electricity_expense || 0,
+        dg_fuel: ov.dg_fuel_expense || 0,
+        wages: ov.staff_wages || 0,
+        shrinkage: ov.evaporation_shrinkage_cost || 0,
+        bank_charges: ov.bank_pos_charges || 0,
+        misc: ov.maintenance_misc || 0,
+        cash_shortage: vaultShort,
+        total: totalOverheads
+      },
+      net_dealer_profit: netProfit,
+      total_turnover: Math.round(totalTurnover),
+      net_margin_pct: netMarginPct
+    };
+  });
+
+  const totalLitres = dailyPnL.reduce((a, b) => a + b.total_fuel_litres, 0);
+  const totalFuelMargin = dailyPnL.reduce((a, b) => a + b.fuel_gross_margin, 0);
+  const totalLubeProfit = dailyPnL.reduce((a, b) => a + b.lube_profit, 0);
+  const totalGross = dailyPnL.reduce((a, b) => a + b.total_gross_profit, 0);
+  const totalExpenses = dailyPnL.reduce((a, b) => a + b.overheads.total, 0);
+  const totalNet = dailyPnL.reduce((a, b) => a + b.net_dealer_profit, 0);
+  const totalRev = dailyPnL.reduce((a, b) => a + b.total_turnover, 0);
+
+  s.json({
+    daily: dailyPnL,
+    commissions: commMap,
+    summary: {
+      total_fuel_litres: Math.round(totalLitres),
+      total_fuel_gross_margin: Math.round(totalFuelMargin),
+      total_lube_profit: Math.round(totalLubeProfit),
+      total_gross_profit: Math.round(totalGross),
+      total_expenses: Math.round(totalExpenses),
+      total_net_profit: Math.round(totalNet),
+      total_turnover: Math.round(totalRev),
+      net_margin_pct: totalRev > 0 ? Math.round((totalNet / totalRev) * 1000) / 10 : 0,
+      avg_daily_profit: dailyPnL.length ? Math.round(totalNet / dailyPnL.length) : 0,
+      breakeven_volume_per_day: Math.round(2400 / 2.95)
+    }
+  });
+});
+
+app.post("/api/pnl-commissions", need("owner"), (q, s) => {
+  const { commissions } = q.body || {};
+  if (!commissions || typeof commissions !== "object") {
+    return s.status(400).json({ error: "Invalid commission values." });
+  }
+  const nowTs = now();
+  const upsert = db.prepare(`
+    insert into dealer_commissions(fuel_product, commission_per_litre, company, updated_at)
+    values(?, ?, 'IOCL', ?)
+    on conflict(fuel_product) do update set commission_per_litre=excluded.commission_per_litre, updated_at=excluded.updated_at
+  `);
+  db.transaction(() => {
+    Object.keys(commissions).forEach(fp => {
+      upsert.run(fp, +commissions[fp], nowTs);
+    });
+  })();
+  s.json({ ok: true });
+});
+
+app.post("/api/pnl-overheads", need("owner", "manager"), (q, s) => {
+  const { d, electricity_expense, dg_fuel_expense, staff_wages, evaporation_shrinkage_cost, bank_pos_charges, maintenance_misc, notes } = q.body || {};
+  const date = d || bizDate();
+  db.prepare(`
+    insert into daily_pnl_overheads(d, electricity_expense, dg_fuel_expense, staff_wages, evaporation_shrinkage_cost, bank_pos_charges, maintenance_misc, notes, created_at)
+    values(?, ?, ?, ?, ?, ?, ?, ?, ?)
+    on conflict(d) do update set
+      electricity_expense=excluded.electricity_expense, dg_fuel_expense=excluded.dg_fuel_expense,
+      staff_wages=excluded.staff_wages, evaporation_shrinkage_cost=excluded.evaporation_shrinkage_cost,
+      bank_pos_charges=excluded.bank_pos_charges, maintenance_misc=excluded.maintenance_misc,
+      notes=excluded.notes
+  `).run(
+    date, +electricity_expense || 0, +dg_fuel_expense || 0, +staff_wages || 0,
+    +evaporation_shrinkage_cost || 0, +bank_pos_charges || 0, +maintenance_misc || 0,
+    String(notes || "").trim(), now()
+  );
+  s.json({ ok: true });
+});
+
+// ==========================================
+// 16. WEIGHTS & MEASURES (W&M) STAMPING VAULT
+// ==========================================
+app.get("/api/wm-vault", need(), (q, s) => {
+  const nozzles = db.prepare("select * from wm_stamping_vault order by nozzle_id asc").all();
+  const calibs = db.prepare(`
+    select c.*, u.name as tested_by_name
+    from wm_measure_calibrations c
+    left join users u on u.id = c.tested_by
+    order by c.d desc, c.id desc limit 60
+  `).all();
+
+  const todayD = bizDate();
+  const todayPassCount = db.prepare("select count(*) c from wm_measure_calibrations where d=? and is_pass=1").get(todayD)?.c || 0;
+  const expiredCount = nozzles.filter(n => n.expiry_d < todayD).length;
+  const warningCount = nozzles.filter(n => {
+    const diffDays = Math.ceil((new Date(n.expiry_d) - new Date(todayD)) / 864e5);
+    return diffDays >= 0 && diffDays <= 30;
+  }).length;
+
+  s.json({
+    stamping_records: nozzles,
+    measure_calibrations: calibs,
+    stats: {
+      total_nozzles_stamped: nozzles.length,
+      today_5l_checks_done: todayPassCount,
+      expiring_soon_count: warningCount,
+      expired_count: expiredCount
+    }
+  });
+});
+
+app.post("/api/wm-calibrations/log", need(), (q, s) => {
+  const { nozzle_id, fuel_product, delivered_volume_ml, returned_to_tank_id, notes, seal_intact } = q.body || {};
+  if (!nozzle_id || !delivered_volume_ml || !returned_to_tank_id) {
+    return s.status(400).json({ error: "Nozzle ID, delivered measure (ml), and returned tank are required." });
+  }
+
+  const delivMl = +delivered_volume_ml;
+  const errorMl = Math.round((delivMl - 5000) * 10) / 10;
+  const isPass = Math.abs(errorMl) <= 25.0 ? 1 : 0;
+  const date = bizDate();
+  const timeStr = new Date().toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" });
+
+  const id = db.prepare(`
+    insert into wm_measure_calibrations(
+      d, time_str, nozzle_id, fuel_product, measure_stamped_capacity,
+      delivered_volume_ml, error_ml, allowed_tolerance_ml, is_pass,
+      seal_intact, returned_to_tank_id, tested_by, notes, created_at
+    ) values(?, ?, ?, ?, 5.0, ?, ?, 25.0, ?, ?, ?, ?, ?, ?)
+  `).run(
+    date, timeStr, String(nozzle_id), String(fuel_product || "Diesel (HSD)"),
+    delivMl, errorMl, isPass, (seal_intact === 0 ? 0 : 1),
+    String(returned_to_tank_id), q.user.id, String(notes || "").trim(), now()
+  ).lastInsertRowid;
+
+  s.json({ ok: true, id, error_ml: errorMl, is_pass: isPass });
+});
+
+app.post("/api/wm-stamping/update", need("owner", "manager"), (q, s) => {
+  const {
+    nozzle_id, dispenser_make, fuel_product, island_name, serial_no,
+    last_stamping_d, expiry_d, certificate_no, inspector_name,
+    legal_metrology_office, pulser_seal_no, totalizer_motherboard_seal_no, notes
+  } = q.body || {};
+
+  if (!nozzle_id || !expiry_d || !certificate_no) {
+    return s.status(400).json({ error: "Nozzle ID, expiry date, and certificate number are required." });
+  }
+
+  const todayD = bizDate();
+  const diffDays = Math.ceil((new Date(expiry_d) - new Date(todayD)) / 864e5);
+  const status = diffDays < 0 ? "expired" : (diffDays <= 30 ? "warning" : "valid");
+
+  db.prepare(`
+    insert into wm_stamping_vault(
+      nozzle_id, dispenser_make, fuel_product, island_name, serial_no,
+      last_stamping_d, expiry_d, certificate_no, inspector_name, legal_metrology_office,
+      pulser_seal_no, totalizer_motherboard_seal_no, status, notes, updated_at
+    ) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    on conflict(nozzle_id) do update set
+      dispenser_make=excluded.dispenser_make, fuel_product=excluded.fuel_product,
+      island_name=excluded.island_name, serial_no=excluded.serial_no,
+      last_stamping_d=excluded.last_stamping_d, expiry_d=excluded.expiry_d,
+      certificate_no=excluded.certificate_no, inspector_name=excluded.inspector_name,
+      legal_metrology_office=excluded.legal_metrology_office, pulser_seal_no=excluded.pulser_seal_no,
+      totalizer_motherboard_seal_no=excluded.totalizer_motherboard_seal_no,
+      status=excluded.status, notes=excluded.notes, updated_at=excluded.updated_at
+  `).run(
+    String(nozzle_id), String(dispenser_make || "Dispenser"), String(fuel_product || "Fuel"),
+    String(island_name || "Island"), String(serial_no || "SN-001"),
+    String(last_stamping_d || todayD), String(expiry_d), String(certificate_no).trim(),
+    String(inspector_name || "Legal Metrology Inspector").trim(),
+    String(legal_metrology_office || "Legal Metrology Office").trim(),
+    String(pulser_seal_no || "").trim(), String(totalizer_motherboard_seal_no || "").trim(),
+    status, String(notes || "").trim(), now()
+  );
+
+  s.json({ ok: true, status });
+});
+
+// Enhanced Indent Slip details with Mileage and Verification Token
+app.get("/api/fleet-indents/:id/slip", need(), (q, s) => {
+  const ind = db.prepare(`
+    select fi.*, u.name as worker_name, cs.a as credit_amount
+    from fleet_indents fi
+    left join users u on u.id = fi.worker_id
+    left join credit_sales cs on cs.id = fi.credit_sale_id
+    where fi.id = ?
+  `).get(+q.params.id);
+  if (!ind) return s.status(404).json({ error: "Indent slip not found." });
+
+  const prev = db.prepare(`
+    select * from fleet_indents
+    where vehicle_no = ? and id < ? and odometer_km is not null and dispensed_qty > 0
+    order by id desc limit 1
+  `).get(ind.vehicle_no, ind.id);
+
+  let kmPerLitre = null;
+  let kmTravelled = null;
+  if (prev && ind.odometer_km && prev.odometer_km && ind.dispensed_qty) {
+    kmTravelled = ind.odometer_km - prev.odometer_km;
+    if (kmTravelled > 0 && ind.dispensed_qty > 0) {
+      kmPerLitre = Math.round((kmTravelled / ind.dispensed_qty) * 100) / 100;
+    }
+  }
+
+  let st = {};
+  try {
+    const sRow = db.prepare("select json from state where id=1").get();
+    if (sRow && sRow.json) st = JSON.parse(sRow.json);
+  } catch (_) {}
+
+  const biz = st.biz || { name: "Petrol Pump Management", addr: "Highway Station", gst: "" };
+
+  s.json({
+    indent: ind,
+    previous_reading: prev,
+    km_travelled: kmTravelled,
+    mileage_km_per_litre: kmPerLitre,
+    station: biz,
+    verification_token: `VERIFY-${ind.id}-${Math.abs((ind.created_at * 31) % 99999).toString().padStart(5, "0")}`
+  });
+});
+
+// ==========================================
+// 17. DAILY PRICE REVISION (06:00 AM) & BROADCAST
+// ==========================================
+app.get("/api/price-revisions", need(), (q, s) => {
+  const { fuel_product, date_from, date_to } = q.query || {};
+  let sql = `
+    select pr.*, u.name as revised_by_name
+    from daily_price_revisions pr
+    left join users u on u.id = pr.revised_by
+    where 1=1
+  `;
+  const params = [];
+  if (fuel_product && fuel_product !== "all") {
+    sql += " and pr.fuel_product = ?";
+    params.push(fuel_product);
+  }
+  if (date_from) {
+    sql += " and pr.revision_d >= ?";
+    params.push(date_from);
+  }
+  if (date_to) {
+    sql += " and pr.revision_d <= ?";
+    params.push(date_to);
+  }
+  sql += " order by pr.revision_d desc, pr.id desc limit 100";
+  const revisions = db.prepare(sql).all(...params);
+
+  const broadcasts = db.prepare(`
+    select b.*, u.name as sent_by_name
+    from price_broadcast_logs b
+    left join users u on u.id = b.sent_by
+    order by b.broadcast_d desc, b.id desc limit 60
+  `).all();
+
+  // Current live rates from state
+  let st = {};
+  try {
+    const sRow = db.prepare("select json from state where id=1").get();
+    if (sRow && sRow.json) st = JSON.parse(sRow.json);
+  } catch (_) {}
+
+  const currentRates = {};
+  (st.rates || []).forEach(r => {
+    currentRates[r.fuel] = r;
+  });
+
+  // Calculate today's inventory impact
+  const todayD = bizDate();
+  const todayImpact = db.prepare("select sum(inventory_impact_inr) as s from daily_price_revisions where revision_d=?").get(todayD)?.s || 0;
+
+  s.json({
+    revisions,
+    broadcasts,
+    current_rates: currentRates,
+    all_rates: st.rates || [],
+    stats: {
+      today_revisions_count: revisions.filter(r => r.revision_d === todayD).length,
+      today_inventory_impact: todayImpact,
+      total_broadcasts_sent: broadcasts.length
+    }
+  });
+});
+
+app.post("/api/price-revisions", need("owner", "manager"), (q, s) => {
+  const { revision_d, effective_time, fuel_product, new_rate, omc_notification_ref, notes, broadcast_now } = q.body || {};
+  if (!fuel_product || new_rate === undefined) {
+    return s.status(400).json({ error: "Fuel product and new rate are required." });
+  }
+
+  const d = revision_d || bizDate();
+  const time = effective_time || "06:00";
+  const nRate = Math.round(+new_rate * 100) / 100;
+
+  // Retrieve current active rate and stock from state
+  let st = {};
+  let stateVer = 0;
+  try {
+    const sRow = db.prepare("select ver, json from state where id=1").get();
+    if (sRow && sRow.json) {
+      st = JSON.parse(sRow.json);
+      stateVer = sRow.ver;
+    }
+  } catch (_) {}
+
+  let oldRate = nRate;
+  (st.rates || []).forEach(r => {
+    if (r.fuel === fuel_product) oldRate = +r.rate;
+  });
+
+  const changeAmt = Math.round((nRate - oldRate) * 100) / 100;
+
+  // Calculate current stock for this fuel product across underground tanks
+  const tanksForFuel = (st.tanks || []).filter(t => t.fuel === fuel_product);
+  const tankIds = tanksForFuel.map(t => String(t.id));
+  let curStock = 0;
+  tankIds.forEach(tid => {
+    const lastDip = db.prepare("select litres from dips where tank_id=? order by t desc limit 1").get(tid);
+    if (lastDip) curStock += lastDip.litres;
+    else {
+      const tObj = tanksForFuel.find(t => String(t.id) === tid);
+      if (tObj && tObj.capacity) curStock += Math.round(tObj.capacity * 0.4);
+    }
+  });
+  if (curStock === 0) curStock = 8500; // default estimated volume
+
+  const invImpact = Math.round(curStock * changeAmt * 100) / 100;
+
+  let revId = null;
+  db.transaction(() => {
+    revId = db.prepare(`
+      insert into daily_price_revisions(
+        revision_d, effective_time, fuel_product, old_rate, new_rate,
+        change_amount, stock_at_revision, inventory_impact_inr, omc_notification_ref,
+        revised_by, notes, created_at
+      ) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      d, time, fuel_product, oldRate, nRate,
+      changeAmt, curStock, invImpact, String(omc_notification_ref || "").trim(),
+      q.user.id, String(notes || "").trim(), now()
+    ).lastInsertRowid;
+
+    // Also update system state rates so dispenser nozzles reflect new price immediately
+    if (!st.rates) st.rates = [];
+    st.rates.push({
+      id: Date.now(),
+      fuel: fuel_product,
+      rate: nRate,
+      from: d
+    });
+    db.prepare("update state set ver=ver+1, json=? where id=1").run(JSON.stringify(st));
+  })();
+
+  // Broadcast if requested
+  if (broadcast_now) {
+    const fleetCustCount = (st.c || []).filter(c => c.active !== false).length;
+    const msg = `Mahud Auto Fuels: Daily RSP Price Revision effective ${d} ${time}. ${fuel_product} updated to ₹${nRate}/L (${changeAmt >= 0 ? '+' : ''}₹${changeAmt}/L). Prompt payment fleet discounts active.`;
+    db.prepare(`
+      insert into price_broadcast_logs(
+        revision_id, broadcast_d, channel, recipient_group, recipients_count,
+        message_body, sent_by, status, created_at
+      ) values(?, ?, 'WhatsApp Broadcast', 'Active Transporter & Fleet Customers', ?, ?, 'sent', ?)
+    `).run(revId, d, fleetCustCount || 12, msg, q.user.id, now());
+  }
+
+  s.json({ ok: true, id: revId, old_rate: oldRate, new_rate: nRate, change_amount: changeAmt, inventory_impact: invImpact });
+});
+
+app.post("/api/price-broadcast", need("owner", "manager"), (q, s) => {
+  const { channel, recipient_group, message_body, revision_id } = q.body || {};
+  if (!message_body) {
+    return s.status(400).json({ error: "Broadcast message body is required." });
+  }
+
+  let st = {};
+  try {
+    const sRow = db.prepare("select json from state where id=1").get();
+    if (sRow && sRow.json) st = JSON.parse(sRow.json);
+  } catch (_) {}
+  const fleetCustCount = (st.c || []).filter(c => c.active !== false).length;
+
+  const id = db.prepare(`
+    insert into price_broadcast_logs(
+      revision_id, broadcast_d, channel, recipient_group, recipients_count,
+      message_body, sent_by, status, created_at
+    ) values(?, ?, ?, ?, ?, ?, ?, 'sent', ?)
+  `).run(
+    revision_id ? +revision_id : null, bizDate(), String(channel || "WhatsApp Broadcast"),
+    String(recipient_group || "All Transporters & Credit Accounts"),
+    fleetCustCount || 10, String(message_body).trim(), q.user.id, now()
+  ).lastInsertRowid;
+
+  s.json({ ok: true, id, sent_count: fleetCustCount || 10 });
+});
+
+// ==========================================
+// 18. WEIGHTS & MEASURES (W&M) RESEAL REQUESTS & REPAIRS
+// ==========================================
+app.get("/api/wm-reseals", need(), (q, s) => {
+  const { status, search } = q.query || {};
+  let sql = `
+    select r.*
+    from wm_reseal_requests r
+    where 1=1
+  `;
+  const params = [];
+  if (status && status !== "all") {
+    sql += " and r.status = ?";
+    params.push(status);
+  }
+  if (search && String(search).trim()) {
+    const term = `%${String(search).trim()}%`;
+    sql += " and (r.req_no like ? or r.technician_name like ? or r.new_seal_no like ? or r.broken_reason like ?)";
+    params.push(term, term, term, term);
+  }
+  sql += " order by r.id desc limit 100";
+  const requests = db.prepare(sql).all(...params);
+
+  s.json({
+    requests,
+    stats: {
+      pending_reseal_count: requests.filter(r => r.status === "pending_reseal").length,
+      completed_count: requests.filter(r => r.status === "inspected_resealed").length,
+      total_count: requests.length
+    }
+  });
+});
+
+app.post("/api/wm-reseals/request", need("owner", "manager"), (q, s) => {
+  const {
+    nozzle_id, fuel_product, dispenser_make, island_name, seal_type,
+    broken_reason, technician_name, technician_agency, date_broken,
+    notice_to_wm_d, wm_inspector_office, challan_fee_inr
+  } = q.body || {};
+
+  if (!nozzle_id || !broken_reason || !technician_name) {
+    return s.status(400).json({ error: "Nozzle ID, breakdown reason, and technician name are required." });
+  }
+
+  const year = new Date().getFullYear();
+  const lastRow = db.prepare("select id from wm_reseal_requests order by id desc limit 1").get();
+  const nextNum = (lastRow ? lastRow.id : 0) + 83;
+  const reqNo = `WM-RSL-${year}-${String(nextNum).padStart(3, "0")}`;
+
+  const d = date_broken || bizDate();
+  const id = db.prepare(`
+    insert into wm_reseal_requests(
+      req_no, nozzle_id, fuel_product, dispenser_make, island_name, seal_type,
+      broken_reason, technician_name, technician_agency, date_broken, notice_to_wm_d,
+      wm_inspector_office, challan_fee_inr, status, created_at
+    ) values(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_reseal', ?)
+  `).run(
+    reqNo, String(nozzle_id), String(fuel_product || "Diesel (HSD)"),
+    String(dispenser_make || "Dispenser"), String(island_name || "Island 1"),
+    String(seal_type || "pulser_wire"), String(broken_reason).trim(),
+    String(technician_name).trim(), String(technician_agency || "Authorized OEM Services").trim(),
+    d, String(notice_to_wm_d || bizDate()),
+    String(wm_inspector_office || "Inspector of Legal Metrology, District Office").trim(),
+    challan_fee_inr ? +challan_fee_inr : 450, now()
+  ).lastInsertRowid;
+
+  s.json({ ok: true, id, req_no: reqNo });
+});
+
+app.post("/api/wm-reseals/complete", need("owner", "manager"), (q, s) => {
+  const { id, new_seal_no, resealed_d, inspector_remarks } = q.body || {};
+  if (!id || !new_seal_no) {
+    return s.status(400).json({ error: "Request ID and new Legal Metrology seal number are required." });
+  }
+
+  const req = db.prepare("select * from wm_reseal_requests where id=?").get(+id);
+  if (!req) return s.status(404).json({ error: "Reseal request not found." });
+
+  db.transaction(() => {
+    db.prepare(`
+      update wm_reseal_requests set
+        status = 'inspected_resealed', new_seal_no = ?, resealed_d = ?,
+        inspector_remarks = ?
+      where id = ?
+    `).run(String(new_seal_no).trim(), resealed_d || bizDate(), String(inspector_remarks || "").trim(), req.id);
+
+    // Also update stamping vault seal number
+    db.prepare(`
+      update wm_stamping_vault set
+        pulser_seal_no = case when ? = 'pulser_wire' then ? else pulser_seal_no end,
+        totalizer_motherboard_seal_no = case when ? = 'totalizer_board' then ? else totalizer_motherboard_seal_no end,
+        updated_at = ?
+      where nozzle_id = ?
+    `).run(req.seal_type, String(new_seal_no).trim(), req.seal_type, String(new_seal_no).trim(), now(), req.nozzle_id);
+  })();
+
+  s.json({ ok: true });
+});
+
+// ==========================================
+// 19. MONTHLY GST TAX BREAKUP & GSTR EXPORT
+// ==========================================
+app.get("/api/gst-tax-breakup", need("owner", "manager"), (q, s) => {
+  const { month } = q.query || {};
+  const targetMonth = month || bizDate().slice(0, 7);
+
+  // 1. Fetch Invoices from state (Lubes & Car Care Items subject to 18% / 28% GST)
+  let st = {};
+  try {
+    const sRow = db.prepare("select json from state where id=1").get();
+    if (sRow && sRow.json) st = JSON.parse(sRow.json);
+  } catch (_) {}
+
+  const allInvs = st.inv || [];
+  const monthInvs = allInvs.filter(i => (i.d || "").startsWith(targetMonth));
+
+  let taxableLubeB2B = 0;
+  let taxableLubeB2C = 0;
+  let totalCgst = 0;
+  let totalSgst = 0;
+  let totalIgst = 0;
+  let b2bInvoices = [];
+  let b2cInvoices = [];
+
+  monthInvs.forEach(i => {
+    const isB2B = i.gst && i.gst.length === 15;
+    const taxAmt = i.t || 0;
+    const cgstAmt = i.ig ? 0 : Math.round(((i.x || 0) / 2) * 100) / 100;
+    const sgstAmt = i.ig ? 0 : Math.round(((i.x || 0) / 2) * 100) / 100;
+    const igstAmt = i.ig ? (i.x || 0) : 0;
+
+    if (isB2B) {
+      taxableLubeB2B += taxAmt;
+      b2bInvoices.push({
+        invoice_no: i.no,
+        date: i.d,
+        customer_name: i.name,
+        customer_gstin: i.gst,
+        taxable_value: taxAmt,
+        cgst: cgstAmt,
+        sgst: sgstAmt,
+        igst: igstAmt,
+        total_amount: i.total
+      });
+    } else {
+      taxableLubeB2C += taxAmt;
+      b2cInvoices.push({
+        invoice_no: i.no,
+        date: i.d,
+        customer_name: i.name,
+        taxable_value: taxAmt,
+        cgst: cgstAmt,
+        sgst: sgstAmt,
+        igst: igstAmt,
+        total_amount: i.total
+      });
+    }
+
+    totalCgst += cgstAmt;
+    totalSgst += sgstAmt;
+    totalIgst += igstAmt;
+  });
+
+  // 2. Fetch Fuel Sales (Petrol MS, Diesel HSD outside GST / under State VAT & Central Excise)
+  const dutyLines = db.prepare(`
+    select dl.*, d.d as duty_d, d.shift
+    from duty_lines dl
+    join duties d on d.id = dl.duty_id
+    where d.status = 'closed' and substr(d.d, 1, 7) = ?
+  `).all(targetMonth);
+
+  let fuelTurnoverNonGst = 0;
+  let fuelLitresSold = 0;
+  dutyLines.forEach(l => {
+    const lit = Math.max(0, (l.closing || 0) - (l.opening || 0) - (l.testing || 0));
+    const amt = lit * (l.rate || 0);
+    fuelTurnoverNonGst += amt;
+    fuelLitresSold += lit;
+  });
+
+  // Credit sales volume check
+  const creditSalesSum = db.prepare(`
+    select sum(a) s from credit_sales
+    where status = 'ok' and substr(d, 1, 7) = ?
+  `).get(targetMonth)?.s || 0;
+
+  const bizInfo = st.biz || { name: "Mahud Auto Fuel Station", addr: "NH 65, Maharashtra", gst: "27ABCDE1234F1Z5" };
+
+  s.json({
+    month: targetMonth,
+    station: bizInfo,
+    gst_turnover_summary: {
+      b2b_taxable_value: Math.round(taxableLubeB2B * 100) / 100,
+      b2c_taxable_value: Math.round(taxableLubeB2C * 100) / 100,
+      total_taxable_gst_value: Math.round((taxableLubeB2B + taxableLubeB2C) * 100) / 100,
+      total_cgst: Math.round(totalCgst * 100) / 100,
+      total_sgst: Math.round(totalSgst * 100) / 100,
+      total_igst: Math.round(totalIgst * 100) / 100,
+      total_gst_tax: Math.round((totalCgst + totalSgst + totalIgst) * 100) / 100,
+      non_gst_fuel_turnover: Math.round(fuelTurnoverNonGst * 100) / 100,
+      total_gross_turnover: Math.round((fuelTurnoverNonGst + taxableLubeB2B + taxableLubeB2C + totalCgst + totalSgst + totalIgst) * 100) / 100
+    },
+    b2b_invoices: b2bInvoices,
+    b2c_invoices: b2cInvoices,
+    gstr1_tables: {
+      table_4_b2b: b2bInvoices,
+      table_7_b2c_small: {
+        type: "OE",
+        place_of_supply: "27-Maharashtra",
+        applicable_rate: "18.0%",
+        taxable_value: Math.round(taxableLubeB2C * 100) / 100,
+        cess_amount: 0
+      },
+      table_8_nil_exempt_nongst: {
+        non_gst_supplies: Math.round(fuelTurnoverNonGst * 100) / 100,
+        description: "Motor Spirit (MS Petrol) and High Speed Diesel (HSD) outside GST preview (State VAT & Central Excise)"
+      }
+    }
+  });
+});
+
 app.delete("/api/duties/:id", need("owner", "manager"), (q, s) => {
   const r = db.transaction(() => {
     const d = db.prepare("select * from duties where id=? and status='open'").get(+q.params.id);
@@ -1593,6 +4097,7 @@ app.get("/api/daily-summary", need("owner", "manager"), (q, s) => {
 
 app.use(express.static(path.join(__dirname, "public")));
 app.use("/api", (q, s) => s.status(404).json({ error: "Not found." }));
+app.get("*", (q, s) => s.sendFile(path.join(__dirname, "public", "index.html")));
 app.use((err, q, s, n) => s.status(err.status || 500).json({ error: err.status === 400 ? "Invalid request." : "Something went wrong." }));
 
 async function startServer() {
